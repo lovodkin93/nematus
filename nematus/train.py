@@ -5,6 +5,7 @@ Build a neural machine translation model with soft attention
 import collections
 from datetime import datetime
 import json
+from shutil import copyfile
 import os
 import locale
 import logging
@@ -17,7 +18,7 @@ import time
 level = logging.INFO
 logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
-import numpy
+import numpy as np
 import tensorflow as tf
 
 from config import read_config_from_cmdline, write_config_to_json_file
@@ -34,39 +35,45 @@ import util
 def load_data(config):
     logging.info('Reading data...')
     text_iterator = TextIterator(
-                        source=config.source_dataset,
-                        target=config.target_dataset,
-                        source_dicts=config.source_dicts,
-                        target_dict=config.target_dict,
-                        model_type=config.model_type,
-                        batch_size=config.batch_size,
-                        maxlen=config.maxlen,
-                        source_vocab_sizes=config.source_vocab_sizes,
-                        target_vocab_size=config.target_vocab_size,
-                        skip_empty=True,
-                        shuffle_each_epoch=config.shuffle_each_epoch,
-                        sort_by_length=config.sort_by_length,
-                        use_factor=(config.factors > 1),
-                        maxibatch_size=config.maxibatch_size,
-                        token_batch_size=config.token_batch_size,
-                        keep_data_in_memory=config.keep_train_set_in_memory)
+        source=config.source_dataset,
+        target=config.target_dataset,
+        source_dicts=config.source_dicts,
+        target_dict=config.target_dict,
+        model_type=config.model_type,
+        batch_size=config.batch_size,
+        maxlen=config.maxlen,
+        source_vocab_sizes=config.source_vocab_sizes,
+        target_vocab_size=config.target_vocab_size,
+        skip_empty=True,
+        shuffle_each_epoch=config.shuffle_each_epoch,
+        sort_by_length=config.sort_by_length,
+        use_factor=(config.factors > 1),
+        maxibatch_size=config.maxibatch_size,
+        token_batch_size=config.token_batch_size,
+        keep_data_in_memory=config.keep_train_set_in_memory,
+        target_graph=config.target_graph,
+        target_labels_num=config.target_labels_num
+    )
 
     if config.valid_freq and config.valid_source_dataset and config.valid_target_dataset:
+
+        remove_parse = True if config.valid_remove_parse else False
         valid_text_iterator = TextIterator(
-                            source=config.valid_source_dataset,
-                            target=config.valid_target_dataset,
-                            source_dicts=config.source_dicts,
-                            target_dict=config.target_dict,
-                            model_type=config.model_type,
-                            batch_size=config.valid_batch_size,
-                            maxlen=config.maxlen,
-                            source_vocab_sizes=config.source_vocab_sizes,
-                            target_vocab_size=config.target_vocab_size,
-                            shuffle_each_epoch=False,
-                            sort_by_length=True,
-                            use_factor=(config.factors > 1),
-                            maxibatch_size=config.maxibatch_size,
-                            token_batch_size=config.valid_token_batch_size)
+            source=config.valid_source_dataset,
+            target=config.valid_target_dataset,
+            source_dicts=config.source_dicts,
+            target_dict=config.target_dict,
+            model_type=config.model_type,
+            batch_size=config.valid_batch_size,
+            maxlen=config.maxlen,
+            source_vocab_sizes=config.source_vocab_sizes,
+            target_vocab_size=config.target_vocab_size,
+            shuffle_each_epoch=False,
+            sort_by_length=True,
+            use_factor=(config.factors > 1),
+            maxibatch_size=config.maxibatch_size,
+            token_batch_size=config.valid_token_batch_size,
+            remove_parse=remove_parse)
     else:
         logging.info('no validation set loaded')
         valid_text_iterator = None
@@ -75,8 +82,8 @@ def load_data(config):
 
 
 def train(config, sess):
-    assert (config.prior_model != None and (tf.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c==0.0)), \
-    "MAP training requires a prior model file: Use command-line option --prior_model"
+    assert (config.prior_model != None and (tf.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c == 0.0)), \
+        "MAP training requires a prior model file: Use command-line option --prior_model"
 
     # Construct the graph, with one model replica per GPU
 
@@ -89,7 +96,7 @@ def train(config, sess):
         device_type = "GPU" if num_gpus > 0 else "CPU"
         device_spec = tf.DeviceSpec(device_type=device_type, device_index=i)
         with tf.device(device_spec):
-            with tf.variable_scope(tf.get_variable_scope(), reuse=(i>0)):
+            with tf.variable_scope(tf.get_variable_scope(), reuse=(i > 0)):
                 if config.model_type == "transformer":
                     model = TransformerModel(config)
                 else:
@@ -97,7 +104,8 @@ def train(config, sess):
                 replicas.append(model)
 
     init = tf.zeros_initializer(dtype=tf.int32)
-    global_step = tf.get_variable('time', [], initializer=init, trainable=False)
+    global_step = tf.get_variable(
+        'time', [], initializer=init, trainable=False)
 
     if config.learning_schedule == "constant":
         schedule = ConstantSchedule(config.learning_rate)
@@ -116,7 +124,8 @@ def train(config, sess):
                                            beta2=config.adam_beta2,
                                            epsilon=config.adam_epsilon)
     else:
-        logging.error('No valid optimizer defined: {}'.format(config.optimizer))
+        logging.error(
+            'No valid optimizer defined: {}'.format(config.optimizer))
         sys.exit(1)
 
     if config.summary_freq:
@@ -139,7 +148,7 @@ def train(config, sess):
     # supported, so we just use the first replica.
     model_set = inference.InferenceModelSet([replicas[0]], [config])
 
-    #save model options
+    # save model options
     write_config_to_json_file(config, config.saveto)
 
     text_iterator, valid_text_iterator = load_data(config)
@@ -152,36 +161,57 @@ def train(config, sess):
         logging.info('Starting epoch {0}'.format(progress.eidx))
         for source_sents, target_sents in text_iterator:
             if len(source_sents[0][0]) != config.factors:
-                logging.error('Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(config.factors, len(source_sents[0][0])))
+                logging.error('Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
+                    config.factors, len(source_sents[0][0])))
                 sys.exit(1)
-            x_in, x_mask_in, y_in, y_mask_in = util.prepare_data(
-                source_sents, target_sents, config.factors, maxlen=None)
+            if config.target_graph:
+                # target_sents, target_edges, target_labels, target_edges_time, target_labels_time = list(zip(*target_sents))
+                target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
+                # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
+                target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
+                source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
+            else:
+                # target_edges = None
+                # target_labels = None
+                target_edges_time = None
+                target_labels_time = None
+            print("Predicting for", len(target_sents), "sentences in batch.")
+
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time = util.prepare_data(
+                source_sents, target_sents, target_edges_time, target_labels_time, config.factors, maxlen=None)
+            # x_in, x_mask_in, y_in, y_mask_in, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(
+            #     source_sents, target_sents, target_edges, target_labels, target_edges_time, target_labels_time, config.factors, maxlen=None)
+
             if x_in is None:
-                logging.info('Minibatch with zero sample under length {0}'.format(config.maxlen))
+                logging.info(
+                    'Minibatch with zero sample under length {0}'.format(config.maxlen))
                 continue
-            write_summary_for_this_batch = config.summary_freq and ((progress.uidx % config.summary_freq == 0) or (config.finish_after and progress.uidx % config.finish_after == 0))
+            write_summary_for_this_batch = config.summary_freq and ((progress.uidx % config.summary_freq == 0) or (
+                config.finish_after and progress.uidx % config.finish_after == 0))
             (factors, seqLen, batch_size) = x_in.shape
 
-            loss = updater.update(sess, x_in, x_mask_in, y_in, y_mask_in,
-                                  write_summary_for_this_batch)
+            loss = updater.update(sess, write_summary_for_this_batch, x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time)
             total_loss += loss
             n_sents += batch_size
-            n_words += int(numpy.sum(y_mask_in))
+            n_words += int(np.sum(y_mask_in))
             progress.uidx += 1
 
             if config.disp_freq and progress.uidx % config.disp_freq == 0:
                 duration = time.time() - last_time
                 disp_time = datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')
-                logging.info('{0} Epoch: {1} Update: {2} Loss/word: {3} Words/sec: {4} Sents/sec: {5}'.format(disp_time, progress.eidx, progress.uidx, total_loss/n_words, n_words/duration, n_sents/duration))
+                logging.info('{0} Epoch: {1} Update: {2} Loss/word: {3} Words/sec: {4} Sents/sec: {5}'.format(
+                    disp_time, progress.eidx, progress.uidx, total_loss / n_words, n_words / duration, n_sents / duration))
                 last_time = time.time()
                 total_loss = 0.
                 n_sents = 0
                 n_words = 0
 
             if config.sample_freq and progress.uidx % config.sample_freq == 0:
-                x_small, x_mask_small, y_small = x_in[:, :, :10], x_mask_in[:, :10], y_in[:, :10]
+                x_small, x_mask_small, y_small = x_in[
+                                                 :, :, :10], x_mask_in[:, :10], y_in[:, :10]
                 samples = model_set.sample(sess, x_small, x_mask_small)
-                assert len(samples) == len(x_small.T) == len(y_small.T), (len(samples), x_small.shape, y_small.shape)
+                assert len(samples) == len(x_small.T) == len(
+                    y_small.T), (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
@@ -190,13 +220,19 @@ def train(config, sess):
                     logging.info('TARGET: {}'.format(target))
                     logging.info('SAMPLE: {}'.format(sample))
 
+            # TODO delete
+            if config.target_graph:
+                raise NotImplementedError  # TODO from here labels are not propagated anymore
+
             if config.beam_freq and progress.uidx % config.beam_freq == 0:
-                x_small, x_mask_small, y_small = x_in[:, :, :10], x_mask_in[:, :10], y_in[:,:10]
+                x_small, x_mask_small, y_small = x_in[
+                                                 :, :, :10], x_mask_in[:, :10], y_in[:, :10]
                 samples = model_set.beam_search(sess, x_small, x_mask_small,
-                                               config.beam_size,
-                                               normalization_alpha=config.normalization_alpha)
+                                                config.beam_size,
+                                                normalization_alpha=config.normalization_alpha)
                 # samples is a list with shape batch x beam x len
-                assert len(samples) == len(x_small.T) == len(y_small.T), (len(samples), x_small.shape, y_small.shape)
+                assert len(samples) == len(x_small.T) == len(
+                    y_small.T), (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
@@ -205,14 +241,14 @@ def train(config, sess):
                     for i, (sample_seq, cost) in enumerate(ss):
                         sample = util.seq2words(sample_seq, num_to_target)
                         msg = 'SAMPLE {}: {} Cost/Len/Avg {}/{}/{}'.format(
-                            i, sample, cost, len(sample), cost/len(sample))
+                            i, sample, cost, len(sample), cost / len(sample))
                         logging.info(msg)
 
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
                 valid_ce = validate(sess, replicas[0], config,
                                     valid_text_iterator)
                 if (len(progress.history_errs) == 0 or
-                    valid_ce < min(progress.history_errs)):
+                            valid_ce < min(progress.history_errs)):
                     progress.history_errs.append(valid_ce)
                     progress.bad_counter = 0
                     save_non_checkpoint(sess, saver, config.saveto)
@@ -228,8 +264,8 @@ def train(config, sess):
                 if config.valid_script is not None:
                     score = validate_with_script(sess, replicas[0], config)
                     need_to_save = (score is not None and
-                        (len(progress.valid_script_scores) == 0 or
-                         score > max(progress.valid_script_scores)))
+                                    (len(progress.valid_script_scores) == 0 or
+                                     score > max(progress.valid_script_scores)))
                     if score is None:
                         score = 0.0  # ensure a valid value is written
                     progress.valid_script_scores.append(score)
@@ -243,19 +279,25 @@ def train(config, sess):
                         progress.save_to_json(progress_path)
 
             if config.save_freq and progress.uidx % config.save_freq == 0:
-                saver.save(sess, save_path=config.saveto, global_step=progress.uidx)
-                write_config_to_json_file(config, "%s-%s" % (config.saveto, progress.uidx))
+                saver.save(sess, save_path=config.saveto,
+                           global_step=progress.uidx)
+                write_config_to_json_file(
+                    config, "%s-%s" % (config.saveto, progress.uidx))
 
-                progress_path = '{0}-{1}.progress.json'.format(config.saveto, progress.uidx)
+                progress_path = '{0}-{1}.progress.json'.format(
+                    config.saveto, progress.uidx)
                 progress.save_to_json(progress_path)
 
             if config.finish_after and progress.uidx % config.finish_after == 0:
                 logging.info("Maximum number of updates reached")
-                saver.save(sess, save_path=config.saveto, global_step=progress.uidx)
-                write_config_to_json_file(config, "%s-%s" % (config.saveto, progress.uidx))
+                saver.save(sess, save_path=config.saveto,
+                           global_step=progress.uidx)
+                write_config_to_json_file(
+                    config, "%s-%s" % (config.saveto, progress.uidx))
 
-                progress.estop=True
-                progress_path = '{0}-{1}.progress.json'.format(config.saveto, progress.uidx)
+                progress.estop = True
+                progress_path = '{0}-{1}.progress.json'.format(
+                    config.saveto, progress.uidx)
                 progress.save_to_json(progress_path)
                 break
         if progress.estop:
@@ -306,7 +348,7 @@ def validate(session, model, config, text_iterator):
     num_tokens = sum(token_counts)
     sum_ce = sum(ce_vals)
     avg_ce = sum_ce / num_sents
-    logging.info('Validation cross entropy (AVG/SUM/N_SENTS/N_TOKENS): {0} ' \
+    logging.info('Validation cross entropy (AVG/SUM/N_SENTS/N_TOKENS): {0} '
                  '{1} {2} {3}'.format(avg_ce, sum_ce, num_sents, num_tokens))
     return avg_ce
 
@@ -316,15 +358,20 @@ def validate_with_script(session, model, config):
         return None
     logging.info('Starting external validation.')
     out = tempfile.NamedTemporaryFile(mode='w')
-    inference.translate_file(input_file=open(config.valid_source_dataset),
-                             output_file=out,
-                             session=session,
-                             models=[model],
-                             configs=[config],
-                             beam_size=config.beam_size,
-                             minibatch_size=config.valid_batch_size,
-                             normalization_alpha=config.normalization_alpha)
+    with open(config.valid_source_dataset) as infile:
+        inference.translate_file(input_file=infile,
+                                 output_file=out,
+                                 session=session,
+                                 models=[model],
+                                 configs=[config],
+                                 beam_size=config.beam_size,
+                                 minibatch_size=config.valid_batch_size,
+                                 normalization_alpha=config.normalization_alpha)
     out.flush()
+    dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
+    logging.info("Saving dev transltion of " + config.valid_source_dataset +" to " + dev_out_path)
+    copyfile(out.name, dev_out_path)
+
     args = [config.valid_script, out.name]
     proc = subprocess.Popen(args, stdin=None, stdout=subprocess.PIPE,
                             stderr=subprocess.PIPE)
@@ -379,13 +426,21 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
     ce_vals, token_counts = [], []
     for xx, yy in text_iterator:
         if len(xx[0][0]) != config.factors:
-            logging.error('Mismatch between number of factors in settings ' \
+            logging.error('Mismatch between number of factors in settings '
                           '({0}) and number present in data ({1})'.format(
-                          config.factors, len(xx[0][0])))
+                              config.factors, len(xx[0][0])))
             sys.exit(1)
-        x, x_mask, y, y_mask = util.prepare_data(xx, yy, config.factors,
+        if config.target_graph:
+            raise NotImplementedError
+        else:
+            # target_edges = None
+            # target_labels = None
+            target_edges_time = None
+            target_labels_time = None
+        # x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(xx, yy, target_edges, target_labels, target_edges_time, target_labels_time, config.factors,
+        #                                          maxlen=None)
+        x, x_mask, y, y_mask, target_edges_time, target_labels_time = util.prepare_data(xx, yy, target_edges_time, target_labels_time, config.factors,
                                                  maxlen=None)
-
         # Run the minibatch through the model to get the sentence-level cross
         # entropy values.
         feeds = {model.inputs.x: x,
@@ -393,13 +448,19 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
                  model.inputs.y: y,
                  model.inputs.y_mask: y_mask,
                  model.inputs.training: False}
+        if config.target_graph:
+            # feeds[model.inputs.target_edges] = target_edges
+            # feeds[model.inputs.target_labels] = target_labels
+            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time)
+            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time)
         batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
 
         # Optionally, do length normalization.
-        batch_token_counts = [numpy.count_nonzero(s) for s in y_mask.T]
+        batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]
         if normalization_alpha:
-            adjusted_lens = [n**normalization_alpha for n in batch_token_counts]
-            batch_ce_vals /= numpy.array(adjusted_lens)
+            adjusted_lens = [
+                n**normalization_alpha for n in batch_token_counts]
+            batch_ce_vals /= np.array(adjusted_lens)
 
         ce_vals += list(batch_ce_vals)
         token_counts += batch_token_counts

@@ -8,6 +8,8 @@ import json
 import logging
 import numpy
 import sys
+import numpy as np
+import tensorflow as tf
 
 # Source:
 # https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
@@ -20,46 +22,94 @@ def get_available_gpus():
     return [x.name for x in local_device_protos if x.device_type == 'GPU']
 
 
+def reset_dict_vals(d):
+    """
+    :param d: dictionary
+    :return: vals are consecutive numbers starting from 0, sorted by the order of the original vals
+    """
+    return {key: i for i, (key, val) in enumerate(sorted(d.items(), key=lambda x:x[1]))}
+
+def reset_dict_indexes(d):
+    """
+    :param d: dictionary
+    :return: keys are consecutive numbers starting from 0, sorted by the order of the keys
+    """
+    return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 # batch preparation
-def prepare_data(seqs_x, seqs_y, n_factors, maxlen=None):
+# def prepare_data(seqs_x, seqs_y, seq_edges, seq_labels, seq_edges_time, seq_labels_time, n_factors, maxlen=None):
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, maxlen=None):
+
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
 
+    # move edges to length major instead of batch major
+    if seq_edges_time is not None:
+        # target_edges = numpy.array(seq_edges)
+        # target_edges = numpy.moveaxis(target_edges, 0, -1)
+        # target_labels = numpy.array(seq_labels)
+        # target_labels = numpy.moveaxis(target_labels, 0, -1)
+        target_edges_time = numpy.array(seq_edges_time)
+        target_edges_time = numpy.moveaxis(target_edges_time, 0, -1)
+        target_labels_time = numpy.array(seq_labels_time)
+        target_labels_time = numpy.moveaxis(target_labels_time, 0, -1)
+    else:
+        # target_edges = None
+        # target_labels = None
+        target_edges_time = None
+        target_labels_time = None
+
+    # drop pairs with sentences longer than maxlen
     if maxlen is not None:
         new_seqs_x = []
         new_seqs_y = []
         new_lengths_x = []
         new_lengths_y = []
-        for l_x, s_x, l_y, s_y in zip(lengths_x, seqs_x, lengths_y, seqs_y):
+        kept = []
+        for i, (l_x, s_x, l_y, s_y) in enumerate(zip(lengths_x, seqs_x, lengths_y, seqs_y)):
             if l_x < maxlen and l_y < maxlen:
                 new_seqs_x.append(s_x)
                 new_lengths_x.append(l_x)
                 new_seqs_y.append(s_y)
                 new_lengths_y.append(l_y)
+                kept.append(i)
         lengths_x = new_lengths_x
         seqs_x = new_seqs_x
         lengths_y = new_lengths_y
         seqs_y = new_seqs_y
-
+        if seq_edges_time is not None:
+            # target_edges = target_edges[:,:,:,kept]
+            # target_labels = target_labels[:,:,:,kept]
+            target_edges_time = target_edges_time[:,:,:,kept]
+            target_labels_time = target_labels_time[:,:,:,kept]
         if len(lengths_x) < 1 or len(lengths_y) < 1:
-            return None, None, None, None
+            return None, None, None, None, None, None
 
     n_samples = len(seqs_x)
     maxlen_x = numpy.max(lengths_x) + 1
     maxlen_y = numpy.max(lengths_y) + 1
-
     x = numpy.zeros((n_factors, maxlen_x, n_samples)).astype('int64')
     y = numpy.zeros((maxlen_y, n_samples)).astype('int64')
     x_mask = numpy.zeros((maxlen_x, n_samples)).astype('float32')
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
+
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
         x[:, :lengths_x[idx], idx] = list(zip(*s_x))
         x_mask[:lengths_x[idx]+1, idx] = 1.
         y[:lengths_y[idx], idx] = s_y
         y_mask[:lengths_y[idx]+1, idx] = 1.
 
-    return x, x_mask, y, y_mask
+    return x, x_mask, y, y_mask, target_edges_time, target_labels_time
+    # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
+
+
+def array_to_sparse_tensor(ar, base_val=float("inf")):
+    indices = np.nonzero(ar != base_val)
+    values = ar[indices]
+    shape = ar.shape
+    indices = np.transpose(indices)
+    sparse = tf.compat.v1.SparseTensorValue(indices, values, shape) # why are the inf in the values?
+    return sparse
 
 
 def load_dict(filename, model_type):

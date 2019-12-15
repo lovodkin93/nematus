@@ -2,7 +2,7 @@ import math
 
 import numpy
 import tensorflow as tf
-
+import util
 
 class ModelUpdater(object):
     """Helper class for training using multiple GPUs and/or large minibatches.
@@ -42,7 +42,10 @@ class ModelUpdater(object):
         self._graph = _ModelUpdateGraph(config, num_gpus, replicas, optimizer,
                                         global_step)
 
-    def update(self, session, x, x_mask, y, y_mask, write_summary):
+    # def update(self, session, write_summary, x, x_mask, y, y_mask, x_edges=None, x_labels=None, x_edges_time=None, x_labels_time=None):
+    def update(self, session, write_summary, x, x_mask, y, y_mask, x_edges_time=None,
+                   x_labels_time=None):
+
         """Updates the model for a single minibatch.
 
         Args:
@@ -75,8 +78,11 @@ class ModelUpdater(object):
             n = len(self._replicas) * self._config.gradient_aggregation_steps
             start_points = self._split_minibatch_into_n(x_mask, y_mask, n)
 
-        split_x, split_x_mask, split_y, split_y_mask, weights = \
-            self._split_and_pad_minibatch(x, x_mask, y, y_mask, start_points)
+        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights = \
+            self._split_and_pad_minibatch(x, x_mask, y, y_mask, x_edges_time, x_labels_time, start_points)
+
+        # split_x, split_x_mask, split_y, split_y_mask, split_x_edges, split_x_labels, split_x_edges_time,split_x_labels_time, weights = \
+        #     self._split_and_pad_minibatch(x, x_mask, y, y_mask, x_edges, x_labels, x_edges_time, x_labels_time, start_points)
 
         # Normalize the weights so that _ModelUpdateGraph can just sum the
         # weighted gradients from each sub-batch (without needing a
@@ -104,6 +110,11 @@ class ModelUpdater(object):
                 feed_dict[self._replicas[j].inputs.y] = split_y[i+j]
                 feed_dict[self._replicas[j].inputs.y_mask] = split_y_mask[i+j]
                 feed_dict[self._replicas[j].inputs.training] = True
+                if self._config.target_graph:
+                    # feed_dict[self._replicas[j].inputs.target_edges] = split_x_edges[i+j]
+                    # feed_dict[self._replicas[j].inputs.target_labels] = split_x_labels[i+j]
+                    feed_dict[self._replicas[j].inputs.edge_times] = util.array_to_sparse_tensor(split_x_edges_time[i+j])
+                    feed_dict[self._replicas[j].inputs.label_times] = util.array_to_sparse_tensor(split_x_labels_time[i+j])
             session.run([self._graph.accum_ops], feed_dict=feed_dict)
 
         # Apply the gradients (and optionally write the summary).
@@ -225,7 +236,10 @@ class ModelUpdater(object):
 
         return start_points
 
-    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, start_points):
+    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time,
+                                     start_points):
+
+        # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges, x_labels, x_edges_time, x_labels_time, start_points):
         """Splits a minibatch according to a list of split points.
 
         Args:
@@ -252,6 +266,16 @@ class ModelUpdater(object):
         split_x_mask = split_array(x_mask, start_points)
         split_y = split_array(y, start_points)
         split_y_mask = split_array(y_mask, start_points)
+        if x_edges_time is not None:
+            # split_x_edges = split_array(x_edges, start_points)
+            # split_x_labels = split_array(x_labels, start_points)
+            split_x_edges_time = split_array(x_edges_time, start_points)
+            split_x_labels_time = split_array(x_labels_time, start_points)
+        else:
+            # split_x_edges = None
+            # split_x_labels = None
+            split_x_edges_time = None
+            split_x_labels_time = None
 
         # Trim arrays so that the seq_len dimension is equal to the longest
         # source / target sentence in the sub-batch (rather than the whole
@@ -263,6 +287,11 @@ class ModelUpdater(object):
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_x_mask]
         split_x = trim_arrays(split_x, max_lens)
         split_x_mask = trim_arrays(split_x_mask, max_lens)
+        if split_x_edges_time is not None:
+            # split_x_edges = trim_arrays(split_x_edges, max_lens)
+            # split_x_labels = trim_arrays(split_x_labels, max_lens)
+            split_x_edges_time = trim_arrays(split_x_edges_time, max_lens)
+            split_x_labels_time = trim_arrays(split_x_labels_time, max_lens)
 
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_y_mask]
         split_y = trim_arrays(split_y, max_lens)
@@ -291,11 +320,17 @@ class ModelUpdater(object):
         pad(split_x_mask, padding_size)
         pad(split_y, padding_size)
         pad(split_y_mask, padding_size)
+        if split_x_edges_time is not None:
+            # pad(split_x_edges, padding_size)
+            # pad(split_x_labels, padding_size)
+            pad(split_x_edges_time, padding_size)
+            pad(split_x_labels_time, padding_size)
 
         for i in range(padding_size):
             weights.append(0.0)
 
-        return split_x, split_x_mask, split_y, split_y_mask, weights
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights
+        # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges, split_x_labels, split_x_edges_time, split_x_labels_time, weights
 
 
 class _ModelUpdateGraph(object):

@@ -5,9 +5,10 @@ import sys
 
 import numpy
 import tensorflow as tf
-import tensorflow.contrib.slim as slim #tensorflow.contrib.framework ???
+import tensorflow.contrib.slim as slim  # tensorflow.contrib.framework ???
 
 import training_progress
+
 
 def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
     # Construct a mapping between saved variable names and names in the current
@@ -26,12 +27,12 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
         if ensemble_scope == None:
             saved_name = name
         elif v.name.startswith(ensemble_scope.name + "/"):
-            saved_name = name[len(ensemble_scope.name)+1:]
+            saved_name = name[len(ensemble_scope.name) + 1:]
             # The ensemble scope is repeated for Adam variables. See
             # https://github.com/tensorflow/tensorflow/issues/8120
             if saved_name.startswith(ensemble_scope.name + "/"):
-                saved_name = saved_name[len(ensemble_scope.name)+1:]
-        else: # v belongs to a different model in the ensemble.
+                saved_name = saved_name[len(ensemble_scope.name) + 1:]
+        else:  # v belongs to a different model in the ensemble.
             continue
         if config.model_version == 0.1:
             # Backwards compatibility with the old variable naming scheme.
@@ -46,10 +47,12 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
         reload_filename = tf.train.latest_checkpoint(checkpoint_dir)
         if reload_filename != None:
             if (os.path.basename(reload_filename).rsplit('-', 1)[0] !=
-                os.path.basename(config.saveto)):
-                logging.error("Mismatching model filename found in the same directory while reloading from the latest checkpoint")
+                    os.path.basename(config.saveto)):
+                logging.error("Mismatching model filename found in the same directory while reloading from the latest checkpoint." +
+                              "\nreload:" + os.path.basename(reload_filename).rsplit('-', 1)[0] + "\nsave to:" + os.path.basename(config.saveto))
                 sys.exit(1)
-            logging.info('Latest checkpoint found in directory ' + os.path.abspath(checkpoint_dir))
+            logging.info('Latest checkpoint found in directory ' +
+                         os.path.abspath(checkpoint_dir))
     elif config.reload != None:
         reload_filename = config.reload
     if (reload_filename == None) and (config.prior_model != None):
@@ -71,9 +74,10 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
                 logging.info('Reloading training progress')
                 progress.load_from_json(path)
                 if (progress.estop == True or
-                    progress.eidx > config.max_epochs or
-                    progress.uidx >= config.finish_after):
-                    logging.warning('Training is already complete. Disable reloading of training progress (--no_reload_training_progress) or remove or modify progress file (%s) to train anyway.' % path)
+                        progress.eidx > config.max_epochs or
+                        progress.uidx >= config.finish_after):
+                    logging.warning(
+                        'Training is already complete. Disable reloading of training progress (--no_reload_training_progress) or remove or modify progress file (%s) to train anyway.' % path)
                     sys.exit(0)
 
     # load prior model
@@ -86,7 +90,8 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
         init_op = tf.global_variables_initializer()
         sess.run(init_op)
     else:
-        logging.info('Loading model parameters from file ' + os.path.abspath(reload_filename))
+        logging.info('Loading model parameters from file ' +
+                     os.path.abspath(reload_filename))
         saver.restore(sess, os.path.abspath(reload_filename))
 
     logging.info('Done')
@@ -98,20 +103,21 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
 
 
 def load_prior(config, sess, saver):
-     logging.info('Loading prior model parameters from file ' + os.path.abspath(config.prior_model))
-     saver.restore(sess, os.path.abspath(config.prior_model))
+    logging.info('Loading prior model parameters from file ' +
+                 os.path.abspath(config.prior_model))
+    saver.restore(sess, os.path.abspath(config.prior_model))
 
-     # fill prior variables with the loaded values
-     prior_variables = tf.get_collection_ref('prior_variables')
-     prior_variables_dict = dict([(v.name, v) for v in prior_variables])
-     assign_tensors = []
-     with tf.variable_scope('prior'):
-         for v in tf.trainable_variables():
-             prior_name = 'loss/prior/'+v.name
-             prior_variable = prior_variables_dict[prior_name]
-             assign_tensors.append(prior_variable.assign(v))
-     tf.variables_initializer(prior_variables)
-     sess.run(assign_tensors)
+    # fill prior variables with the loaded values
+    prior_variables = tf.get_collection_ref('prior_variables')
+    prior_variables_dict = dict([(v.name, v) for v in prior_variables])
+    assign_tensors = []
+    with tf.variable_scope('prior'):
+        for v in tf.trainable_variables():
+            prior_name = 'loss/prior/' + v.name
+            prior_variable = prior_variables_dict[prior_name]
+            assign_tensors.append(prior_variable.assign(v))
+    tf.variables_initializer(prior_variables)
+    sess.run(assign_tensors)
 
 
 # for backwards compatibility with old models

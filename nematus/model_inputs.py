@@ -5,7 +5,8 @@ class ModelInputs(object):
     def __init__(self, config):
         # variable dimensions
         seq_len, batch_size = None, None
-
+        if config.target_graph:
+            seq_len = config.maxlen
         self.x = tf.placeholder(
             name='x',
             shape=(config.factors, seq_len, batch_size),
@@ -30,3 +31,25 @@ class ModelInputs(object):
             False,
             name='training',
             shape=())
+        if config.target_graph:
+            edge_labels_num = 3 # (self left right)
+            if config.target_labels_num is None:
+                raise ValueError("target_labels_num is not defined, please figure it by the dictionary and supply it as a flag")
+            # self.target_edges = tf.placeholder(
+            #     name='target_edges',
+            #     shape=(seq_len, seq_len, edge_labels_num, batch_size),
+            #     dtype=tf.float32)
+            #
+            # self.target_labels = tf.placeholder(
+            #     name='target_labels',
+            #     shape=(seq_len, seq_len, config.target_labels_num, batch_size),
+            #     dtype=tf.float32)
+            self.edge_times = tf.sparse.placeholder(
+                name='edge_times',
+                shape=(seq_len, seq_len, edge_labels_num, batch_size),
+                dtype=tf.int32)
+
+            self.label_times = tf.sparse.placeholder(
+                name='label_times',
+                shape=(seq_len, seq_len, config.target_labels_num, batch_size),
+                dtype=tf.int32)

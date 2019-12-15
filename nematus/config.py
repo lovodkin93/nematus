@@ -4,6 +4,7 @@ import json
 import logging
 import pickle
 import sys
+import os
 
 import util
 
@@ -327,6 +328,22 @@ class ConfigSpecification:
             type=int, metavar='INT',
             help='number of softmax components to use (default: '
                  '%(default)s) - CURRENTLY ONLY WORKS FOR \'rnn\' MODEL'))
+
+        group.append(ParameterSpecification(
+            name='target_graph', default=False,
+            visible_arg_names=['--target_graph'],
+            action='store_true',
+            help='True if system also parses the target (default: False)'))
+        group.append(ParameterSpecification(
+            name='target_labels_num', default=None,
+            visible_arg_names=['--target_labels_num'],
+            type=int,
+            help='Number of possible labels in target graphs, if target_graph is used.'))
+        group.append(ParameterSpecification(
+            name='target_gcn_layers', default=2,
+            visible_arg_names=['--target_gcn_layers'],
+            type=int,
+            help='Number of gcn layers in target graphs, if target_graph is used.'))
 
         # Add command-line parameters for 'network_rnn' group.
 
@@ -754,13 +771,23 @@ class ConfigSpecification:
                  'specifying the path of a file that contains translations '
                  'of the source validation corpus. It must write a single '
                  'score to standard output.'))
+        group.append(ParameterSpecification(
+            name='valid_remove_parse', default=False,
+            visible_arg_names=['--valid_remove_parse'],
+            action='store_true',
+            help='If true validates only translation even if output includes parse.'))
 
         group.append(ParameterSpecification(
             name='patience', default=10,
             visible_arg_names=['--patience'],
             type=int, metavar='INT',
             help='early stopping patience (default: %(default)s)'))
-
+        
+        group.append(ParameterSpecification(
+            name='valid_no_parse', default=False,
+            visible_arg_names=['--valid_no_parse'],
+            action='store_true',
+            help='True if validation should ignore the target parse (default: False)'))
         # Add command-line parameters for 'display' group.
 
         group = param_specs['display']
@@ -973,6 +1000,8 @@ def write_config_to_json_file(config, path):
     """
 
     config_as_dict = collections.OrderedDict(sorted(vars(config).items()))
+    if not os.path.isdir(os.path.dirname(path)):
+        os.makedirs(os.path.dirname(path))
     json.dump(config_as_dict, open('%s.json' % path, 'w'), indent=2)
 
 

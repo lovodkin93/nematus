@@ -42,8 +42,68 @@ def get_shape_list(inputs):
     return dims_list
 
 
+def extract_sparse_less(sparse_tensor, value, dtype=None):
+    """
+    returns all values that are less than given value.
+    IMPORTANT: empty values are not returned even when value is positive!
+    :param sparse_tensor:
+    :param value:
+    :return:
+    """
+    indices = sparse_tensor.indices
+    values = sparse_tensor.values
+    condition = tf.squeeze(tf.where(tf.less(values, value)), axis=-1)
+    indices = tf.gather(indices, condition)
+    values = tf.gather(values, condition)
+    values = tf.cast(values, dtype=dtype)
+    tensor = tf.SparseTensor(
+      indices,
+      values,
+      sparse_tensor.dense_shape)
+    return tensor
+
+
+def get_tensor_from_times(time_steps, times, dtype=tf.float32):
+    """
+    return a tensor corresponding to the times e.g. times=[0,1,2,3] on timestep=2 should result on [0,1,1,0]
+    :param time_steps:
+    :param times: a tensor with numbers > 0 representing the first time step for which there is a value
+    :return:
+    """
+    return extract_sparse_less(times, time_steps, dtype=dtype)
+
+    # non sparse
+    # pos_idxs = tf.where(tf.not_equal(times, 0))
+    # time_idxs = tf.where(tf.less_equal(times, time_steps))
+    # idxs = tf.math.logical_and(pos_idxs, time_idxs)
+    # tensor = tf.SparseTensor(idx, tf.gather_nd(times, idx), times.get_shape(),
+    #             dtype=dtype)
+    return tensor
+
+def get_target_edges_mask(time_steps, general_edge_mask):
+    if general_edge_mask is None:
+        return 1
+    boolean_mask = tf.less(general_edge_mask, time_steps)
+    mask = tf.cast(boolean_mask, tf.float32)
+    return mask
+    # edge_mask = edge_mask_lengths[time_steps]
+    # raise NotImplementedError # TODO copy from the behaviour of get_right_context_mask
+
+
+def get_target_bias_mask(time_steps, general_bias_mask):
+    if general_bias_mask is None:
+        return 1
+    boolean_mask = tf.less(general_bias_mask, time_steps)
+    mask = tf.cast(boolean_mask, tf.float32)
+    return mask
+    # edge_mask = bias_mask_lengths[time_steps]
+    # raise NotImplementedError # TODO copy from the behaviour of get_right_context_mask
+
+
 def get_right_context_mask(time_steps):
     """ Generates the mask preventing the decoder from attending to unseen positions. """
+    # time_steps = tf.Print(time_steps, [time_steps, tf.shape(time_steps)], "time_steps", 40,
+    #                              1000)
     # Generate mask that limits decoder self-attention up to and including the current position
     attn_mask = tf.matrix_band_part(tf.ones([time_steps, time_steps]), -1, 0)
     # Expand mask to 4d. so as to be compatible with attention weights
@@ -149,7 +209,7 @@ class LayerNormLayer(object):
     def forward(self, inputs):
         layer_mean, layer_var = tf.nn.moments(inputs, axes=-1, keep_dims=True)
         normalized = tf.add(
-            tf.multiply(self.scale, tf.math.divide(tf.subtract(inputs, layer_mean),
+            tf.multiply(self.scale, tf.divide(tf.subtract(inputs, layer_mean),
                                            tf.sqrt(tf.add(layer_var, self.eps)))),
             self.offset)
 
@@ -408,6 +468,6 @@ class MaskedCrossEntropy(object):
             normalized_loss = tf.reshape(flat_normalized_loss, tf.shape(targets))
             masked_loss = normalized_loss * target_mask
             sentence_lengths = tf.reduce_sum(target_mask, axis=self.time_dim, keepdims=False)
-            sentence_loss = tf.math.divide(tf.reduce_sum(masked_loss, axis=self.time_dim, keepdims=False), sentence_lengths)
+            sentence_loss = tf.divide(tf.reduce_sum(masked_loss, axis=self.time_dim, keepdims=False), sentence_lengths)
             batch_loss = tf.reduce_mean(sentence_loss, keepdims=False)
         return masked_loss, sentence_loss, batch_loss
