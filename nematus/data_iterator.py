@@ -1,18 +1,25 @@
 import numpy
+import logging
 
 import gzip
 
-import shuffle
-from util import load_dict
 from parsing.corpus import extract_text_from_combined_tokens
 from parsing.corpus import ConllSent
 from util import reset_dict_vals
 import numpy as np
+import subprocess
+
+try:
+    from .util import load_dict
+    from . import shuffle
+except (ModuleNotFoundError, ImportError) as e:
+    from util import load_dict
+    import shuffle
 
 def fopen(filename, mode='r'):
     if filename.endswith('.gz'):
-        return gzip.open(filename, mode)
-    return open(filename, mode)
+        return gzip.open(filename, mode, encoding="UTF-8")
+    return open(filename, mode, encoding="UTF-8")
 
 
 class FileWrapper(object):
@@ -69,7 +76,16 @@ class TextIterator:
                  keep_data_in_memory=False,
                  remove_parse=False,
                  target_graph=False,
-                 target_labels_num=None):
+                 target_labels_num=None,
+                 preprocess_script=None):
+        self.preprocess_script = preprocess_script
+        self.source_orig = source
+        self.target_orig = target
+        if self.preprocess_script:
+            logging.info("Executing external preprocessing script...")
+            proc = subprocess.Popen(self.preprocess_script)
+            proc.wait()
+            logging.info("done")
         if keep_data_in_memory:
             self.source, self.target = FileWrapper(source), FileWrapper(target)
             if shuffle_each_epoch:
@@ -79,7 +95,7 @@ class TextIterator:
         elif shuffle_each_epoch:
             self.source_orig = source
             self.target_orig = target
-            self.source, self.target = shuffle.main(
+            self.source, self.target = shuffle.jointly_shuffle_files(
                 [self.source_orig, self.target_orig], temporary=True)
         else:
             self.source = fopen(source, 'r')
@@ -158,13 +174,23 @@ class TextIterator:
         return self
 
     def reset(self):
+        if self.preprocess_script:
+            logging.info("Executing external preprocessing script...")
+            proc = subprocess.Popen(self.preprocess_script)
+            proc.wait()
+            logging.info("done")
+            if self.keep_data_in_memory:
+                self.source, self.target = FileWrapper(self.source_orig), FileWrapper(self.target_orig)
+            else:
+                self.source = fopen(self.source_orig, 'r')
+                self.target = fopen(self.target_orig, 'r')
         if self.shuffle:
             if self.keep_data_in_memory:
                 r = numpy.random.permutation(len(self.source))
                 self.source.shuffle_lines(r)
                 self.target.shuffle_lines(r)
             else:
-                self.source, self.target = shuffle.main(
+                self.source, self.target = shuffle.jointly_shuffle_files(
                     [self.source_orig, self.target_orig], temporary=True)
         else:
             self.source.seek(0)

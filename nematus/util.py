@@ -1,9 +1,6 @@
-'''
-Utility functions
-'''
+"""Utility functions."""
 
 import pickle as pkl
-import exception
 import json
 import logging
 import numpy
@@ -11,16 +8,10 @@ import sys
 import numpy as np
 import tensorflow as tf
 
-# Source:
-# https://stackoverflow.com/questions/38559755/how-to-get-current-available-gpus-in-tensorflow
-def get_available_gpus():
-    """
-        Returns a list of the identifiers of all visible GPUs.
-    """
-    from tensorflow.python.client import device_lib
-    local_device_protos = device_lib.list_local_devices()
-    return [x.name for x in local_device_protos if x.device_type == 'GPU']
-
+try:
+    from . import exception
+except (ModuleNotFoundError, ImportError) as e:
+    import exception
 
 def reset_dict_vals(d):
     """
@@ -199,9 +190,9 @@ def read_all_lines(config, sentences, batch_size):
         line = []
         for w in sent.strip().split():
             if config.factors == 1:
-                w = [source_to_num[0][w] if w in source_to_num[0] else 1]
+                w = [source_to_num[0][w] if w in source_to_num[0] else 2]
             else:
-                w = [source_to_num[i][f] if f in source_to_num[i] else 1
+                w = [source_to_num[i][f] if f in source_to_num[i] else 2
                                          for (i,f) in enumerate(w.split('|'))]
                 if len(w) != config.factors:
                     raise exception.Error(

@@ -21,6 +21,7 @@ Notable features include:
      - label smoothing
      - early stopping with user-defined stopping criterion
      - resume training (optionally with MAP-L2 regularization towards original model)
+     - minimum risk training (MRT)
 
  - scoring and decoding features:
      - batch decoding
@@ -49,7 +50,7 @@ INSTALLATION
 Nematus requires the following packages:
 
  - Python 3 (tested on version 3.5.2)
- - TensorFlow (tested on version 1.12)
+ - TensorFlow 1.X (tested on version 1.15)
 
 To install tensorflow, we recommend following the steps at:
   ( https://www.tensorflow.org/install/ )
@@ -150,9 +151,8 @@ An updated version of these scripts that uses the Transformer model can be found
 | --rnn_dec_base_transition_depth INT | number of GRU transition operations applied in the first layer of the decoder. Minimum is 2. (Only applies to gru_cond). (default: 2) |
 | --rnn_dec_high_transition_depth INT | number of GRU transition operations applied in the higher layers of the decoder. Minimum is 1. (Only applies to gru). (default: 1) |
 | --rnn_dec_deep_context | pass context vector (from first layer) to deep decoder layers |
-| --rnn_use_dropout | use dropout layer (default: False) |
-| --rnn_dropout_embedding FLOAT | dropout for input embeddings (0: no dropout) (default: 0.2) |
-| --rnn_dropout_hidden FLOAT | dropout for hidden layer (0: no dropout) (default: 0.2) |
+| --rnn_dropout_embedding FLOAT | dropout for input embeddings (0: no dropout) (default: 0.0) |
+| --rnn_dropout_hidden FLOAT | dropout for hidden layer (0: no dropout) (default: 0.0) |
 | --rnn_dropout_source FLOAT | dropout source words (0: no dropout) (default: 0.0) |
 | --rnn_dropout_target FLOAT | dropout target words (0: no dropout) (default: 0.0) |
 | --rnn_layer_normalisation | Set to use layer normalization in encoder and decoder |
@@ -173,19 +173,21 @@ An updated version of these scripts that uses the Transformer model can be found
 #### training parameters
 | parameter | description |
 |---        |---          |
-| --loss_function {cross-entropy,per-token-cross-entropy} | loss function (default: cross-entropy) |
+| --loss_function {cross-entropy,per-token-cross-entropy, MRT} | loss function. MRT: Minimum Risk Training https://www.aclweb.org/anthology/P/P16/P16-1159.pdf) (default: cross-entropy) |
 | --decay_c FLOAT | L2 regularization penalty (default: 0.0) |
 | --map_decay_c FLOAT | MAP-L2 regularization penalty towards original weights (default: 0.0) |
 | --prior_model PATH | Prior model for MAP-L2 regularization. Unless using " --reload", this will also be used for initialization. |
 | --clip_c FLOAT | gradient clipping threshold (default: 1.0) |
 | --label_smoothing FLOAT | label smoothing (default: 0.0) |
+| --exponential_smoothing FLOAT | exponential smoothing factor; use 0 to disable (default: 0.0) |
 | --optimizer {adam} | optimizer (default: adam) |
 | --adam_beta1 FLOAT | exponential decay rate for the first moment estimates (default: 0.9) |
 | --adam_beta2 FLOAT | exponential decay rate for the second moment estimates (default: 0.999) |
 | --adam_epsilon FLOAT | constant for numerical stability (default: 1e-08) |
-| --learning_schedule {constant,transformer} | learning schedule (default: constant) |
+| --learning_schedule {constant,transformer,warmup-plateau-decay} | learning schedule (default: constant) |
 | --learning_rate FLOAT | learning rate (default: 0.0001) |
 | --warmup_steps INT | number of initial updates during which the learning rate is increased linearly during learning rate scheduling (default: 8000) |
+| --plateau_steps INT | number of updates after warm-up before the learning rate starts to decay (applies to 'warmup-plateau-decay' learning schedule only). (default: 0) |
 | --maxlen INT | maximum sequence length for training and validation (default: 100) |
 | --batch_size INT | minibatch size (default: 80) |
 | --token_batch_size INT | minibatch size (expressed in number of source or target tokens). Sentence-level minibatch size will be dynamic. If this is enabled, batch_size only affects sorting by length. (default: 0) |
@@ -198,6 +200,21 @@ An updated version of these scripts that uses the Transformer model can be found
 | --keep_train_set_in_memory | Keep training dataset lines stores in RAM during training |
 | --max_epochs INT | maximum number of epochs (default: 5000) |
 | --finish_after INT | maximum number of updates (minibatches) (default: 10000000) |
+| --print_per_token_pro PATH | PATH to store the probability of each target token given source sentences over the training dataset (without training). If set to False, the function will not be triggered. (default: False). Please get rid of the 1.0s at the end of each list which are the probability of padding. |
+
+#### minimum risk training parameters (MRT)
+
+| parameter | description |
+|---        |---          |
+| --mrt_reference | add reference into MRT candidates sentences (default: False) |
+| --mrt_alpha FLOAT | MRT alpha to control the sharpness of the distribution of sampled subspace (default: 0.005) |
+| --samplesN INT | the number of sampled candidates sentences per source sentence (default: 100) |
+| --mrt_loss | evaluation metrics used to compute loss between the candidate translation and reference translation (default: SENTENCEBLEU n=4) |
+| --mrt_ml_mix FLOAT | mix in MLE objective in MRT training with this scaling factor (default: 0) |
+| --sample_way {beam_search, randomly_sample} | the sampling strategy to generate candidates sentences (default: beam_search) |
+| --max_len_a INT | generate candidates sentences with maximum length: ax + b, where x is the length of the source sentence (default: 1.5) |
+| --max_len_b INT | generate candidates sentences with maximum length: ax + b, where x is the length of the source sentence (default: 5) |
+| --max_sentences_of_sampling INT | maximum number of source sentences to generate candidates sentences at one time (limited by device memory capacity) (default: 0) |
 
 #### validation parameters
 | parameter | description |
@@ -208,6 +225,7 @@ An updated version of these scripts that uses the Transformer model can be found
 | --valid_token_batch_size INT | validation minibatch size (expressed in number of source or target tokens). Sentence-level minibatch size will be dynamic. If this is enabled, valid_batch_size only affects sorting by length. (default: 0) |
 | --valid_freq INT | validation frequency (default: 10000) |
 | --valid_script PATH | path to script for external validation (default: None). The script will be passed an argument specifying the path of a file that contains translations of the source validation corpus. It must write a single score to standard output. |
+| --valid_bleu_source_dataset PATH | source validation corpus for external validation (default: None). If set to None, the dataset for calculating validation loss (valid_source_dataset) will be used |
 | --patience INT | early stopping patience (default: 10) |
 
 #### display parameters
@@ -221,9 +239,10 @@ An updated version of these scripts that uses the Transformer model can be found
 #### translate parameters
 | parameter | description |
 |---        |---          |
-| --no_normalize | Cost of sentences will not be normalized by length |
+| --normalization_alpha [ALPHA] | normalize scores by sentence length (with argument, " "exponentiate lengths by ALPHA) |
 | --n_best | Print full beam |
 | --translation_maxlen INT | Maximum length of translation output sentence (default: 200) |
+| --translation_strategy {beam_search,sampling} | translation_strategy, either beam_search or sampling (default: beam_search) |
 
 #### `nematus/translate.py` : use an existing model to translate a source text
 

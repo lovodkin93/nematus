@@ -21,15 +21,35 @@ logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 import numpy as np
 import tensorflow as tf
 
-from config import read_config_from_cmdline, write_config_to_json_file
-from data_iterator import TextIterator
-import inference
-from learning_schedule import ConstantSchedule, TransformerSchedule
-import model_loader
-from model_updater import ModelUpdater
-import rnn_model
-from transformer import Transformer as TransformerModel
-import util
+try:
+    from .beam_search_sampler import BeamSearchSampler
+    from .config import read_config_from_cmdline, write_config_to_json_file
+    from .data_iterator import TextIterator
+    from .exponential_smoothing import ExponentialSmoothing
+    from . import learning_schedule
+    from . import model_loader
+    from .model_updater import ModelUpdater
+    from .random_sampler import RandomSampler
+    from . import rnn_model
+    from . import tf_utils
+    from .transformer import Transformer as TransformerModel
+    from . import translate_utils
+    from . import util
+except (ModuleNotFoundError, ImportError) as e:
+    from beam_search_sampler import BeamSearchSampler
+    from config import read_config_from_cmdline, write_config_to_json_file
+    from data_iterator import TextIterator
+    from exponential_smoothing import ExponentialSmoothing
+    import learning_schedule
+    import model_loader
+    from model_updater import ModelUpdater
+    from random_sampler import RandomSampler
+    import rnn_model
+    import tf_utils
+    from transformer import Transformer as TransformerModel
+    import translate_utils
+    import util
+
 
 
 def load_data(config):
@@ -51,6 +71,7 @@ def load_data(config):
         maxibatch_size=config.maxibatch_size,
         token_batch_size=config.token_batch_size,
         keep_data_in_memory=config.keep_train_set_in_memory,
+        preprocess_script=config.preprocess_script,
         target_graph=config.target_graph,
         target_labels_num=config.target_labels_num
     )
@@ -87,8 +108,21 @@ def train(config, sess):
 
     # Construct the graph, with one model replica per GPU
 
-    num_gpus = len(util.get_available_gpus())
+    num_gpus = len(tf_utils.get_available_gpus())
     num_replicas = max(1, num_gpus)
+
+    if config.loss_function == 'MRT':
+        assert config.gradient_aggregation_steps == 1
+        assert config.max_sentences_per_device == 0, "MRT mode does not support sentence-based split"
+        if config.max_tokens_per_device != 0:
+            assert (config.samplesN * config.maxlen <= config.max_tokens_per_device), "need to make sure candidates of a sentence could be " \
+                                                                                      "feed into the model"
+        else:
+            assert num_replicas == 1, "MRT mode does not support sentence-based split"
+            assert (config.samplesN * config.maxlen <= config.token_batch_size), "need to make sure candidates of a sentence could be " \
+                                                                                      "feed into the model"
+
+
 
     logging.info('Building model...')
     replicas = []
@@ -108,11 +142,18 @@ def train(config, sess):
         'time', [], initializer=init, trainable=False)
 
     if config.learning_schedule == "constant":
-        schedule = ConstantSchedule(config.learning_rate)
+        schedule = learning_schedule.ConstantSchedule(config.learning_rate)
     elif config.learning_schedule == "transformer":
-        schedule = TransformerSchedule(global_step=global_step,
-                                       dim=config.state_size,
-                                       warmup_steps=config.warmup_steps)
+        schedule = learning_schedule.TransformerSchedule(
+            global_step=global_step,
+            dim=config.state_size,
+            warmup_steps=config.warmup_steps)
+    elif config.learning_schedule == "warmup-plateau-decay":
+        schedule = learning_schedule.WarmupPlateauDecaySchedule(
+            global_step=global_step,
+            peak_learning_rate=config.learning_rate,
+            warmup_steps=config.warmup_steps,
+            plateau_steps=config.plateau_steps)
     else:
         logging.error('Learning schedule type is not valid: {}'.format(
             config.learning_schedule))
@@ -138,15 +179,25 @@ def train(config, sess):
     updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
                            writer)
 
+    if config.exponential_smoothing > 0.0:
+        smoothing = ExponentialSmoothing(config.exponential_smoothing)
+
     saver, progress = model_loader.init_or_restore_variables(
         config, sess, train=True)
 
     global_step.load(progress.uidx, sess)
 
-    # Use an InferenceModelSet to abstract over model types for sampling and
-    # beam search. Multi-GPU sampling and beam search are not currently
-    # supported, so we just use the first replica.
-    model_set = inference.InferenceModelSet([replicas[0]], [config])
+    if config.sample_freq:
+        random_sampler = RandomSampler(
+            models=[replicas[0]],
+            configs=[config],
+            beam_size=1)
+
+    if config.beam_freq or config.valid_script is not None:
+        beam_search_sampler = BeamSearchSampler(
+            models=[replicas[0]],
+            configs=[config],
+            beam_size=config.beam_size)
 
     # save model options
     write_config_to_json_file(config, config.saveto)
@@ -157,6 +208,9 @@ def train(config, sess):
     n_sents, n_words = 0, 0
     last_time = time.time()
     logging.info("Initial uidx={}".format(progress.uidx))
+    # set epoch = 1 if print per-token-probability
+    if config.print_per_token_pro:
+        config.max_epochs = progress.eidx+1
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0}'.format(progress.eidx))
         for source_sents, target_sents in text_iterator:
@@ -190,11 +244,29 @@ def train(config, sess):
                 config.finish_after and progress.uidx % config.finish_after == 0))
             (factors, seqLen, batch_size) = x_in.shape
 
-            loss = updater.update(sess, write_summary_for_this_batch, x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time)
-            total_loss += loss
+            output = updater.update(
+                sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
+                write_summary_for_this_batch, target_edges_time, target_labels_time)
+
+            if config.print_per_token_pro == False:
+                total_loss += output
+            else:
+                # write per-token probability into the file
+                f = open(config.print_per_token_pro, 'a')
+                for pro in output:
+                    pro = str(pro) + '\n'
+                    f.write(pro)
+                f.close()
+
             n_sents += batch_size
             n_words += int(np.sum(y_mask_in))
             progress.uidx += 1
+
+            # Update the smoothed version of the model variables.
+            # To reduce the performance overhead, we only do this once every
+            # N steps (the smoothing factor is adjusted accordingly).
+            if config.exponential_smoothing > 0.0 and progress.uidx % smoothing.update_frequency == 0:
+                sess.run(fetches=smoothing.update_ops)
 
             if config.disp_freq and progress.uidx % config.disp_freq == 0:
                 duration = time.time() - last_time
@@ -207,15 +279,18 @@ def train(config, sess):
                 n_words = 0
 
             if config.sample_freq and progress.uidx % config.sample_freq == 0:
-                x_small, x_mask_small, y_small = x_in[
-                                                 :, :, :10], x_mask_in[:, :10], y_in[:, :10]
-                samples = model_set.sample(sess, x_small, x_mask_small)
-                assert len(samples) == len(x_small.T) == len(
-                    y_small.T), (len(samples), x_small.shape, y_small.shape)
+                x_small = x_in[:, :, :10]
+                x_mask_small = x_mask_in[:, :10]
+                y_small = y_in[:, :10]
+                samples = translate_utils.translate_batch(
+                    sess, random_sampler, x_small, x_mask_small,
+                    config.translation_maxlen, 0.0)
+                assert len(samples) == len(x_small.T) == len(y_small.T), \
+                    (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
-                    sample = util.seq2words(ss, num_to_target)
+                    sample = util.seq2words(ss[0][0], num_to_target)
                     logging.info('SOURCE: {}'.format(source))
                     logging.info('TARGET: {}'.format(target))
                     logging.info('SAMPLE: {}'.format(sample))
@@ -225,14 +300,15 @@ def train(config, sess):
                 raise NotImplementedError  # TODO from here labels are not propagated anymore
 
             if config.beam_freq and progress.uidx % config.beam_freq == 0:
-                x_small, x_mask_small, y_small = x_in[
-                                                 :, :, :10], x_mask_in[:, :10], y_in[:, :10]
-                samples = model_set.beam_search(sess, x_small, x_mask_small,
-                                                config.beam_size,
-                                                normalization_alpha=config.normalization_alpha)
-                # samples is a list with shape batch x beam x len
-                assert len(samples) == len(x_small.T) == len(
-                    y_small.T), (len(samples), x_small.shape, y_small.shape)
+
+                x_small = x_in[:, :, :10]
+                x_mask_small = x_mask_in[:, :10]
+                y_small = y_in[:,:10]
+                samples = translate_utils.translate_batch(
+                    sess, beam_search_sampler, x_small, x_mask_small,
+                    config.translation_maxlen, config.normalization_alpha)
+                assert len(samples) == len(x_small.T) == len(y_small.T), \
+                    (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
@@ -245,8 +321,14 @@ def train(config, sess):
                         logging.info(msg)
 
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
-                valid_ce = validate(sess, replicas[0], config,
-                                    valid_text_iterator)
+                if config.exponential_smoothing > 0.0:
+                    sess.run(fetches=smoothing.swap_ops)
+                    valid_ce = validate(sess, replicas[0], config,
+                                        valid_text_iterator)
+                    sess.run(fetches=smoothing.swap_ops)
+                else:
+                    valid_ce = validate(sess, replicas[0], config,
+                                        valid_text_iterator)
                 if (len(progress.history_errs) == 0 or
                             valid_ce < min(progress.history_errs)):
                     progress.history_errs.append(valid_ce)
@@ -262,7 +344,12 @@ def train(config, sess):
                         progress.estop = True
                         break
                 if config.valid_script is not None:
-                    score = validate_with_script(sess, replicas[0], config)
+                    if config.exponential_smoothing > 0.0:
+                        sess.run(fetches=smoothing.swap_ops)
+                        score = validate_with_script(sess, beam_search_sampler)
+                        sess.run(fetches=smoothing.swap_ops)
+                    else:
+                        score = validate_with_script(sess, beam_search_sampler)
                     need_to_save = (score is not None and
                                     (len(progress.valid_script_scores) == 0 or
                                      score > max(progress.valid_script_scores)))
@@ -353,20 +440,24 @@ def validate(session, model, config, text_iterator):
     return avg_ce
 
 
-def validate_with_script(session, model, config):
+def validate_with_script(session, beam_search_sampler):
+    config = beam_search_sampler.configs[0]
     if config.valid_script == None:
         return None
     logging.info('Starting external validation.')
     out = tempfile.NamedTemporaryFile(mode='w')
-    with open(config.valid_source_dataset) as infile:
-        inference.translate_file(input_file=infile,
-                                 output_file=out,
-                                 session=session,
-                                 models=[model],
-                                 configs=[config],
-                                 beam_size=config.beam_size,
-                                 minibatch_size=config.valid_batch_size,
-                                 normalization_alpha=config.normalization_alpha)
+
+    with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
+        translate_utils.translate_file(
+            input_file=infile,
+            output_file=out,
+            session=session,
+            sampler=beam_search_sampler,
+            config=config,
+            max_translation_len=config.translation_maxlen,
+            normalization_alpha=config.normalization_alpha,
+            nbest=False,
+            minibatch_size=config.valid_batch_size)
     out.flush()
     dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
     logging.info("Saving dev transltion of " + config.valid_source_dataset +" to " + dev_out_path)
@@ -474,6 +565,9 @@ if __name__ == "__main__":
     # Parse command-line arguments.
     config = read_config_from_cmdline()
     logging.info(config)
+
+    # TensorFlow 2.0 feature needed by ExponentialSmoothing.
+    tf.enable_resource_variables()
 
     # Create the TensorFlow session.
     tf_config = tf.ConfigProto()

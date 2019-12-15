@@ -2,18 +2,40 @@
 
 """Translates a source file using a translation model (or ensemble)."""
 
-import argparse
 import logging
+if __name__ == '__main__':
+    # Parse console arguments.
+    from settings import TranslationSettings
+    settings = TranslationSettings(from_console_arguments=True)
+    # Set the logging level. This needs to be done before the tensorflow
+    # module is imported.
+    level = logging.DEBUG if settings.verbose else logging.INFO
+    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+
+import argparse
 
 import tensorflow as tf
 
-from config import load_config_from_json_file
-import inference
-import model_loader
-import rnn_model
-from settings import TranslationSettings
-from transformer import Transformer as TransformerModel
-from sampling_utils import SamplingUtils
+try:
+    from .beam_search_sampler import BeamSearchSampler
+    from .config import load_config_from_json_file
+    from .exponential_smoothing import ExponentialSmoothing
+    from . import model_loader
+    from .random_sampler import RandomSampler
+    from . import rnn_model
+    from .sampling_utils import SamplingUtils
+    from .transformer import Transformer as TransformerModel
+    from . import translate_utils
+except (ModuleNotFoundError, ImportError) as e:
+    from beam_search_sampler import BeamSearchSampler
+    from config import load_config_from_json_file
+    from exponential_smoothing import ExponentialSmoothing
+    import model_loader
+    from random_sampler import RandomSampler
+    import rnn_model
+    from sampling_utils import SamplingUtils
+    from transformer import Transformer as TransformerModel
+    import translate_utils
 
 
 def main(settings):
@@ -21,10 +43,6 @@ def main(settings):
     Translates a source language file (or STDIN) into a target language file
     (or STDOUT).
     """
-    # Start logging.
-    level = logging.DEBUG if settings.verbose else logging.INFO
-    logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
-
     # Create the TensorFlow session.
     tf_config = tf.ConfigProto()
     tf_config.allow_soft_placement = True
@@ -37,7 +55,7 @@ def main(settings):
         setattr(config, 'reload', model)
         configs.append(config)
 
-    # Create the model graphs and restore their variables.
+    # Create the model graphs.
     logging.debug("Loading models\n")
     models = []
     for i, config in enumerate(configs):
@@ -46,28 +64,56 @@ def main(settings):
                 model = TransformerModel(config)
             else:
                 model = rnn_model.RNNModel(config)
-            saver = model_loader.init_or_restore_variables(config, session,
-                                                           ensemble_scope=scope)
             model.sampling_utils = SamplingUtils(settings)
             models.append(model)
 
-    # TODO Ensembling is currently only supported for RNNs, so if
-    # TODO len(models) > 1 then check models are all rnn
+    # Add smoothing variables (if the models were trained with smoothing).
+    #FIXME Assumes either all models were trained with smoothing or none were.
+    if configs[0].exponential_smoothing > 0.0:
+        smoothing = ExponentialSmoothing(configs[0].exponential_smoothing)
+
+    # Restore the model variables.
+    for i, config in enumerate(configs):
+        with tf.variable_scope("model%d" % i) as scope:
+            _ = model_loader.init_or_restore_variables(config, session,
+                                                       ensemble_scope=scope)
+
+    # Swap-in the smoothed versions of the variables.
+    if configs[0].exponential_smoothing > 0.0:
+        session.run(fetches=smoothing.swap_ops)
+
+    # FIXME Should be an option in settings
+    max_translation_len = configs[0].translation_maxlen
+
+    # Create a BeamSearchSampler / RandomSampler.
+    if settings.translation_strategy == 'beam_search':
+        sampler = BeamSearchSampler(models, configs, settings.beam_size)
+    else:
+        assert settings.translation_strategy == 'sampling'
+        sampler = RandomSampler(models, configs, settings.beam_size)
+
+    # Warn about the change from neg log probs to log probs for the RNN.
+    if settings.n_best:
+        model_types = [config.model_type for config in configs]
+        if 'rnn' in model_types:
+            logging.warn('n-best scores for RNN models have changed from '
+                         'positive to negative (as of commit 95793196...). '
+                         'If you are using the scores for reranking etc, then '
+                         'you may need to update your scripts.')
 
     # Translate the source file.
-    inference.translate_file(input_file=settings.input,
-                             output_file=settings.output,
-                             session=session,
-                             models=models,
-                             configs=configs,
-                             beam_size=settings.beam_size,
-                             nbest=settings.n_best,
-                             minibatch_size=settings.minibatch_size,
-                             maxibatch_size=settings.maxibatch_size,
-                             normalization_alpha=settings.normalization_alpha)
+    translate_utils.translate_file(
+        input_file=settings.input,
+        output_file=settings.output,
+        session=session,
+        sampler=sampler,
+        config=configs[0],
+        max_translation_len=max_translation_len,
+        normalization_alpha=settings.normalization_alpha,
+        nbest=settings.n_best,
+        minibatch_size=settings.minibatch_size,
+        maxibatch_size=settings.maxibatch_size)
 
 
 if __name__ == "__main__":
-    # Parse console arguments.
-    settings = TranslationSettings(from_console_arguments=True)
     main(settings)

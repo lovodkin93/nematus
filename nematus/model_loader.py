@@ -1,16 +1,59 @@
 import json
 import logging
 import os
+import re
 import sys
 
 import numpy
 import tensorflow as tf
 import tensorflow.contrib.slim as slim  # tensorflow.contrib.framework ???
 
-import training_progress
+try:
+    from .exponential_smoothing import ExponentialSmoothing
+    from . import training_progress
+except (ModuleNotFoundError, ImportError) as e:
+    from exponential_smoothing import ExponentialSmoothing
+    import training_progress
 
 
 def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
+    """Initializes all variables or restores variables from a checkpoint.
+
+    Prior to calling this function, the model (or models if using an ensemble)
+    should already have been created. If a model uses exponential smoothing,
+    then the _smooth versions of its variables should also have been created
+    (by constructing an ExponentialSmoothing object). This function will then
+    initialize the variables or restore them from a checkpoint (if one can be
+    found).
+
+    When using an ensemble, this function should be called once for each
+    model, with each call using model-specific config and ensemble_scope
+    arguments.
+
+    Args:
+      config: Namespace object specifying the config for the current model.
+      sess: a TensorFlow session.
+      ensemble_scope: a tf.variable_scope for the current model if ensembling.
+      train: Boolean specifying that the model is being used for training.
+
+    Returns:
+      If train is True, returns a pair (saver, progress) where saver is a
+      tf.train.Saver and progress is a training_progress.TrainingProgress
+      object. Otherwise, just returns the saver.
+    """
+
+    accum_regex = re.compile('^accum\d+$')
+
+    def is_excluded_variable(name):
+        # Exclude gradient accumulation variables.
+        if accum_regex.match(name):
+            return True
+        if name == 'accumulated_loss':
+            return True
+        return False
+
+    variables = slim.get_variables_to_restore()
+
     # Construct a mapping between saved variable names and names in the current
     # scope. There are two reasons why names might be different:
     #
@@ -20,7 +63,7 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
     #   2. The saved model is from an old version of Nematus (before deep model
     #        support was added) and uses a different variable naming scheme
     #        for the GRUs.
-    variables = slim.get_variables_to_restore()
+
     var_map = {}
     for v in variables:
         name = v.name.split(':')[0]
@@ -33,6 +76,8 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
             if saved_name.startswith(ensemble_scope.name + "/"):
                 saved_name = saved_name[len(ensemble_scope.name) + 1:]
         else:  # v belongs to a different model in the ensemble.
+            continue
+        if is_excluded_variable(saved_name):
             continue
         if config.model_version == 0.1:
             # Backwards compatibility with the old variable naming scheme.
@@ -84,16 +129,24 @@ def init_or_restore_variables(config, sess, ensemble_scope=None, train=False):
     if train and config.prior_model != None:
         load_prior(config, sess, saver)
 
+    init_op = tf.global_variables_initializer()
+
     # initialize or restore model
     if reload_filename == None:
         logging.info('Initializing model parameters from scratch...')
-        init_op = tf.global_variables_initializer()
         sess.run(init_op)
     else:
         logging.info('Loading model parameters from file ' +
                      os.path.abspath(reload_filename))
+        if train:
+            # Initialize all variables before restoring from the checkpoint.
+            # This is to allow for variables that are not saved to the
+            # checkpoint. Currently that is just the gradient accumulation
+            # variables, which are unusual in that they persist across multiple
+            # sessions during training (and therefore need to be variables) but
+            # are regularly reset to zero.
+            sess.run(init_op)
         saver.restore(sess, os.path.abspath(reload_filename))
-
     logging.info('Done')
 
     if train:

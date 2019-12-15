@@ -8,11 +8,15 @@ import numpy as np
 import tensorflow as tf
 from tensorflow.python.ops.init_ops import glorot_uniform_initializer
 
+try:
+    from . import tf_utils
+except (ModuleNotFoundError, ImportError) as e:
+    import tf_utils
 
 def matmul_nd(nd_tensor, matrix):
     """ Performs matrix multiplication for n-dimensional inputs. """
-    tensor_shape = get_shape_list(nd_tensor)
-    matrix_shape = get_shape_list(matrix)
+    tensor_shape = tf_utils.get_shape_list(nd_tensor)
+    matrix_shape = tf_utils.get_shape_list(matrix)
 
     initial_tensor_dims = tensor_shape[:-1]
     flat_first_dim = tf.reduce_prod(initial_tensor_dims)
