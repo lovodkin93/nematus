@@ -114,7 +114,7 @@ def translate_file(input_file, output_file, session, sampler, config,
         beams = []
         for x in minibatches:
             y_dummy = numpy.zeros(shape=(len(x),1))
-            x, x_mask, _, _ = util.prepare_data(x, y_dummy, config.factors,
+            x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, config.factors,
                                                 maxlen=None)
             sample = translate_batch(session, sampler, x, x_mask,
                                      max_translation_len, normalization_alpha)

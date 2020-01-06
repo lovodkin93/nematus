@@ -6,7 +6,7 @@ import sys
 
 import numpy
 import tensorflow as tf
-import tensorflow.contrib.slim as slim  # tensorflow.contrib.framework ???
+import tensorflow.contrib.framework as slim  # tensorflow.contrib.framework ???
 
 try:
     from .exponential_smoothing import ExponentialSmoothing

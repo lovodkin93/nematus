@@ -74,7 +74,12 @@ def get_tensor_from_times(time_steps, times, dtype=tf.float32):
     :param times: a tensor with numbers > 0 representing the first time step for which there is a value
     :return:
     """
-    return extract_sparse_less(times, time_steps, dtype=dtype)
+    tensor = extract_sparse_less(times, time_steps, dtype=dtype)
+    tensor = tf.SparseTensor(
+        tensor.indices,
+        tf.ones_like(tensor.values),
+        tensor.dense_shape)
+    return tensor
 
     # non sparse
     # pos_idxs = tf.where(tf.not_equal(times, 0))
@@ -243,6 +248,8 @@ class ProcessingLayer(object):
                 outputs = tf.layers.dropout(inputs, rate=self.dropout_rate, training=self.training)
             # Apply residual connections
             if residual_inputs is not None:
+                # printop = tf.Print([], [tf.shape(outputs), tf.shape(residual_inputs), outputs, residual_inputs], "residual before and after", 5, 6)
+                # with tf.control_dependencies([printop]):  #TODO delte when not debugging
                 outputs = outputs + residual_inputs
             # Apply layer normalization
             if self.use_layer_norm:

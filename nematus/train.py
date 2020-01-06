@@ -50,7 +50,8 @@ except (ModuleNotFoundError, ImportError) as e:
     import translate_utils
     import util
 
-
+np.random.seed(0)
+tf.random.set_random_seed(0)
 
 def load_data(config):
     logging.info('Reading data...')
@@ -94,7 +95,10 @@ def load_data(config):
             use_factor=(config.factors > 1),
             maxibatch_size=config.maxibatch_size,
             token_batch_size=config.valid_token_batch_size,
-            remove_parse=remove_parse)
+            remove_parse=remove_parse,
+            target_graph=config.target_graph,
+            target_labels_num=config.target_labels_num
+        )
     else:
         logging.info('no validation set loaded')
         valid_text_iterator = None
@@ -210,7 +214,7 @@ def train(config, sess):
     logging.info("Initial uidx={}".format(progress.uidx))
     # set epoch = 1 if print per-token-probability
     if config.print_per_token_pro:
-        config.max_epochs = progress.eidx+1
+        config.max_epochs = progress.eidx + 1
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0}'.format(progress.eidx))
         for source_sents, target_sents in text_iterator:
@@ -229,7 +233,7 @@ def train(config, sess):
                 # target_labels = None
                 target_edges_time = None
                 target_labels_time = None
-            print("Predicting for", len(target_sents), "sentences in batch.")
+            logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
 
             x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time = util.prepare_data(
                 source_sents, target_sents, target_edges_time, target_labels_time, config.factors, maxlen=None)
@@ -295,9 +299,9 @@ def train(config, sess):
                     logging.info('TARGET: {}'.format(target))
                     logging.info('SAMPLE: {}'.format(sample))
 
-            # TODO delete
-            if config.target_graph:
-                raise NotImplementedError  # TODO from here labels are not propagated anymore
+            # # TODO delete
+            # if config.target_graph:
+            #     raise NotImplementedError  # TODO from here labels are not propagated anymore
 
             if config.beam_freq and progress.uidx % config.beam_freq == 0:
 
@@ -319,7 +323,7 @@ def train(config, sess):
                         msg = 'SAMPLE {}: {} Cost/Len/Avg {}/{}/{}'.format(
                             i, sample, cost, len(sample), cost / len(sample))
                         logging.info(msg)
-
+            logging.info("validation" + str(progress.uidx) + "," + str(config.valid_freq))
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
                 if config.exponential_smoothing > 0.0:
                     sess.run(fetches=smoothing.swap_ops)
@@ -515,22 +519,26 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
         <EOS> symbol).
     """
     ce_vals, token_counts = [], []
-    for xx, yy in text_iterator:
-        if len(xx[0][0]) != config.factors:
+    for source_sents, target_sents in text_iterator:
+        if len(source_sents[0][0]) != config.factors:
             logging.error('Mismatch between number of factors in settings '
                           '({0}) and number present in data ({1})'.format(
-                              config.factors, len(xx[0][0])))
+                              config.factors, len(source_sents[0][0])))
             sys.exit(1)
         if config.target_graph:
-            raise NotImplementedError
+            # target_sents, target_edges, target_labels, target_edges_time, target_labels_time = list(zip(*target_sents))
+            target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
+            # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
+            target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
+            source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
         else:
             # target_edges = None
             # target_labels = None
             target_edges_time = None
             target_labels_time = None
-        # x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(xx, yy, target_edges, target_labels, target_edges_time, target_labels_time, config.factors,
+        # x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(source_sents, target_sents, target_edges, target_labels, target_edges_time, target_labels_time, config.factors,
         #                                          maxlen=None)
-        x, x_mask, y, y_mask, target_edges_time, target_labels_time = util.prepare_data(xx, yy, target_edges_time, target_labels_time, config.factors,
+        x, x_mask, y, y_mask, target_edges_time, target_labels_time = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time, config.factors,
                                                  maxlen=None)
         # Run the minibatch through the model to get the sentence-level cross
         # entropy values.
@@ -542,8 +550,10 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
         if config.target_graph:
             # feeds[model.inputs.target_edges] = target_edges
             # feeds[model.inputs.target_labels] = target_labels
-            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time)
-            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time)
+            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time).eval(session=session)
+            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time).eval(session=session)
+            print("fed ce_labels", model.inputs.label_times.indices)
+            print("fed ce_edges", model.inputs.edge_times.indices)
         batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
 
         # Optionally, do length normalization.

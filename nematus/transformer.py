@@ -18,6 +18,7 @@ try:
         get_right_context_mask, \
         get_positional_signal, \
         get_tensor_from_times
+    from .util import load_dict
 except (ModuleNotFoundError, ImportError) as e:
     import model_inputs
     import mrt_utils as mru
@@ -28,7 +29,9 @@ except (ModuleNotFoundError, ImportError) as e:
         EmbeddingLayer, \
         MaskedCrossEntropy, \
         get_right_context_mask, \
-        get_positional_signal
+        get_positional_signal, \
+        get_tensor_from_times
+    from util import load_dict
 
 INT_DTYPE = tf.int32
 FLOAT_DTYPE = tf.float32
@@ -43,6 +46,9 @@ class Transformer(object):
         self.target_vocab_size = config.target_vocab_size
         self.target_labels_num = config.target_labels_num
         self.name = 'transformer'
+        # load dictionary token-> token_id
+        model_type = self.name
+        self.target_labels_dict = load_dict(config.target_dict, model_type) if config.target_graph else {}
 
         # Placeholders
         self.inputs = model_inputs.ModelInputs(config)
@@ -162,10 +168,12 @@ class Transformer(object):
                                           decoder_embedding_layer,
                                           softmax_projection_layer,
                                           self.training,
-                                          self.int_dtype,
-                                          self.float_dtype,
+                                          # self.int_dtype,
+                                          # self.float_dtype,
                                           'decoder',
-                                          labels_num=self.target_labels_num)
+                                          labels_num=self.target_labels_num,
+                                          labels_dict=self.target_labels_dict
+                                          )
         return dec_vocab_size
 
     @property
@@ -326,7 +334,7 @@ class TransformerDecoder(object):
                  softmax_projection_layer,
                  training,
                  name,
-                 from_rnn=False, transition_idx={}, labels_idx={}, labels_num=None):
+                 from_rnn=False, transition_idx={}, labels_dict={}, labels_num=None):
 
         # Set attributes
         self.config = config
@@ -336,6 +344,7 @@ class TransformerDecoder(object):
         self.name = name
         self.from_rnn = from_rnn
         self.labels_num = labels_num
+        self.labels_dict = labels_dict
 
         # If the decoder is used in a hybrid system, adjust parameters
         # accordingly
@@ -376,7 +385,7 @@ class TransformerDecoder(object):
         if self.config.target_graph:
             for layer_id in range(self.config.target_gcn_layers):
                 self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, bias_labels_num=self.labels_num, edge_labels_num=3,
-                    activation=tf.nn.relu)
+                    activation=tf.nn.relu, use_bias=True, gate=True) #TODO use bias, use gate
                 # dec_input += orig_input # residual connection
         # Initialize layers
         with tf.variable_scope(self.name):
@@ -425,24 +434,32 @@ class TransformerDecoder(object):
                 for layer_id in range(self.config.target_gcn_layers):
                     orig_input = dec_input
                     inputs = [dec_input, edges, labels]
-                    print_op = tf.print([tf.shape(item) for item in inputs], "input shapes")
+                    print_ops = []
+                    print_ops.append(tf.Print([], [tf.shape(item) for item in inputs], "input shapes"))
+                    print_ops.append(tf.Print([], [tf.shape(enc_output), enc_output], "end_out shape"))
 
-                    with tf.control_dependencies([print_op]):
+                    with tf.control_dependencies(print_ops):
                         dec_input = self.gcn_stack[layer_id].apply(inputs)
                     # dec_input = gcn(
                     #     [dec_input, labels, edges], bias_labels_num=self.labels_num, edge_labels_num=3, activation=tf.nn.relu)
-                    # dec_input += orig_input # residual connection
+                    dec_input += orig_input # residual connection
 
             # Propagate inputs through the encoder stack
-            dec_output = target_embeddings
+            dec_output = dec_input
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
                 dec_output, _ = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None, self_attn_mask)
-                dec_output, _ = \
-                    self.decoder_stack[layer_id]['cross_attn'].forward(
+                print_ops = []
+                print_ops.append(tf.Print([], [tf.shape(dec_output), tf.shape(cross_attn_mask), cross_attn_mask], "after block" + str(layer_id)))
+                with tf.control_dependencies(print_ops):
+                    dec_output, _ = \
+                        self.decoder_stack[layer_id]['cross_attn'].forward(
                         dec_output, enc_output, cross_attn_mask)
-                dec_output = self.decoder_stack[
-                    layer_id]['ffn'].forward(dec_output)
+                print_ops = []
+                print_ops.append(tf.Print([], [tf.shape(dec_output)], "decoded succsessfully"))
+                with tf.control_dependencies(print_ops):
+                    dec_output = self.decoder_stack[
+                        layer_id]['ffn'].forward(dec_output)
             return dec_output
 
         def _prepare_targets():
@@ -494,6 +511,13 @@ class TransformerDecoder(object):
                 timestep = tf.shape(target_ids)[-1]
                 edges = get_tensor_from_times(timestep, edge_times)
                 labels = get_tensor_from_times(timestep, labels_times)
-                # print_op = tf.print(tf.shape(labels), labels)
-            logits = _decoding_function()
+                # print_op = tf.Prinint(tf.shape(labels), labels)
+            printops = []
+            printops.append(
+                tf.Print([], [edges.indices, edges.values], "masked edges", 300, 50))
+
+            printops.append(
+                tf.Print([], [labels.indices, labels.values], "masked labels", 300, 50))
+            with tf.control_dependencies(printops):
+                logits = _decoding_function()
         return logits

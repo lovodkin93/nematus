@@ -1,10 +1,9 @@
 """Adapted from Nematode: https://github.com/demelin/nematode """
 
-import numpy
+import numpy as np
 import tensorflow as tf
 from parsing.corpus import ConllSent
 
-# <<<<<<< HEAD
 # from transformer_layers import get_shape_list
 # from transformer_layers import get_positional_signal
 # from transformer_layers import get_tensor_from_times
@@ -29,11 +28,15 @@ try:
     from .tf_utils import get_shape_list
     from .transformer import INT_DTYPE, FLOAT_DTYPE
     from .transformer_layers import get_positional_signal
+    from .data_iterator import convert_text_to_graph
+    from . import util
 except (ModuleNotFoundError, ImportError) as e:
     import tf_utils
+    import util
     from tf_utils import get_shape_list
     from transformer import INT_DTYPE, FLOAT_DTYPE
     from transformer_layers import get_positional_signal
+    from data_iterator import convert_text_to_graph
 
 
 class EncoderOutput:
@@ -68,7 +71,6 @@ class ModelAdapter:
     def target_vocab_size(self):
         return self._model.dec.embedding_layer.get_vocab_size()
 
-    @property
 #     def normalization_alpha(self):
 #         return self._normalization_alpha
 
@@ -125,74 +127,6 @@ class ModelAdapter:
 #     return dec_output, scores
 
 
-# def convert_text_to_graph(x_target, edges_idxs, label_idxs, word_end_idxs):
-#     # TODO connect reduce and labels to the popped out
-#     # TODO convert to work with indexes
-#     slf = 0
-#     lft = 1
-#     right = 2
-#     num_labels = len(label_idxs)
-#     edge_types_num = 3
-#     max_len, _ = x_target.shape
-#     edges = numpy.zeros((max_len, max_len, edge_types_num))
-#     edges[:, :, slf] = 1
-#     labels = numpy.zeros((max_len, num_labels))
-#     token_num = 0
-#     idxs_stack = []
-#     tokens_stack = []
-#     label = False
-#     root = False
-#     for token_id, token in enumerate(x_target):
-#         last = tokens_stack
-
-#         if edges_idxs[token] == ConllSent.REDUCE_L + "@@|":
-#             assert not label  # TODO gracefully convert, for inference time (just remove the assertion)
-#             label = True
-#             assert len(
-#                 idxs_stack) > 1, "tried to create a left edge with 1 word or less in the buffer" + str(idxs_stack)
-#             heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack)
-#             idxs_stack, tokens_stack = idxs_stack[:-len(heads_ids)], tokens_stack[:-len(heads_ids)]
-#             dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
-#             idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
-#             idxs_stack += heads_ids
-#             tokens_stack += head_tokens
-#             # head = idxs_buffer[-1]
-#             # dependent = idxs_buffer.pop(-2)
-#             for head in heads_ids:
-#                 for dependent in dependent_ids:
-#                     edges[head, dependent, lft] = 1
-#                     edges[dependent, head, right] = 1
-#         elif edges_idxs[token] == ConllSent.REDUCE_R + "@@|":
-#             assert not label  # TODO gracefully convert, for inference time (just remove the assertion)
-#             label = True
-#             # root = not len([token for token in tokens_buffer if "@@" not in token]) > 1
-#             root = "root" in x_target[token_id + 1]
-#             dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
-#             idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
-#             heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=root)
-#             # idxs_buffer += dependent_ids
-#             # tokens_buffer += dependent_tokens
-#             # head = idxs_buffer[-2]
-#             # dependent = idxs_buffer.pop(-1)
-#             for head in heads_ids:
-#                 for dependent in dependent_ids:
-#                     edges[head, dependent, lft] = 1
-#                     edges[dependent, head, right] = 1
-#         elif token in label_idxs:
-#             assert label  # TODO gracefully convert, for inference time (make sure it works without the assertion)
-#             assert "root" not in token or root  # TODO gracefully convert, for inference time (make sure it works without the assertion)
-#             if label:
-#                 label = False
-#                 for dependent in dependent_ids:
-#                     labels[dependent, labels_dict[token]] = 1
-#         else:
-#             assert not label  # TODO gracefully convert, for inference time (just remove the assertion)
-#             idxs_stack.append(token_id)
-#             tokens_stack.append(token)
-#             token_num += 1  # number of tokens that are not transitions
-#     return edges, labels
-
-
 # def decode_at_test(model, decoder, enc_output, cross_attn_mask, edges, labels, batch_size, beam_size, do_sample, normalization_alpha):
 #     """ Returns the probability distribution over target-side tokens conditioned on the output of the encoder;
 #      performs decoding via auto-regression at test time. """
@@ -206,7 +140,7 @@ class ModelAdapter:
 #             for layer_id in range(decoder.config.target_gcn_layers):
 #                 orig_input = dec_output
 #                 inputs = [dec_output, edges, labels]
-#                 print_op = tf.print([tf.shape(item) for item in inputs], "input shapes")
+#                 print_op = tf.Prinint([tf.shape(item) for item in inputs], "input shapes")
 
 #                 with tf.control_dependencies([print_op]):
 #                     dec_output = decoder.gcn_stack[layer_id].apply(inputs)
@@ -715,6 +649,7 @@ class ModelAdapter:
 #     finished_sequences = finished_sequences[:, :, 1:]
 
 #     return finished_sequences, finished_scores
+    @property
     def batch_size(self):
         return tf.shape(self._model.inputs.x)[-1]
 
@@ -750,6 +685,7 @@ class ModelAdapter:
                 vocab_ids = tf.reshape(step_target_ids, [-1, 1])
                 # Look up embeddings for target IDs.
                 target_embeddings = decoder._embed(vocab_ids)
+
                 # Add positional signal.
                 signal_slice = positional_signal[
                     :, current_time_step-1:current_time_step, :]
@@ -760,10 +696,30 @@ class ModelAdapter:
                         target_embeddings,
                         rate=self.config.transformer_dropout_embeddings,
                         training=decoder.training)
+
+                layer_output = target_embeddings
+
+                # add target graph created so far
+                if self.config.target_graph:
+                    for layer_id in range(self.config.target_gcn_layers):
+                        edges, labels = tf.compat.v1.py_func(self.extract_graph, [step_target_ids], [tf.float32, tf.float32], stateful=False) # this or perhaps the more efficient tf based .compat.v1.py_function?
+                        # edges, labels = tf.numpy_function(self.extract_graph, [step_target_ids], [tf.float32, tf.float32]) # this or perhaps the more efficient tf based .compat.v1.py_function?
+                        # edges = tf.reshape(edges, [self.config.batch_size, self.config.target_vocab_size, self.config.target_vocab_size, 3])
+                        edges.set_shape([None, self.config.maxlen, self.config.maxlen, 3])
+                        labels.set_shape([None, self.config.maxlen, self.config.maxlen, self.config.target_labels_num])
+                        tf.ensure_shape(edges, [None, self.config.maxlen, self.config.maxlen, 3])
+                        tf.ensure_shape(labels, [None, self.config.maxlen, self.config.maxlen, self.config.target_labels_num])
+                        edges = util.dense_to_sparse_tensor(edges)
+                        labels = util.dense_to_sparse_tensor(labels)
+                        print(edges.get_shape())
+                        printops = []
+                        printops.append(tf.Print([], [edges.indices, edges.values], "pythoned edges", 10, 50))
+                        with tf.control_dependencies(printops):
+                            inputs = [layer_output, edges, labels]
+                        layer_output = self.model.dec.gcn_stack[layer_id].apply(inputs)
                 # Propagate values through the decoder stack.
                 # NOTE: No self-attention mask is applied at decoding, as
                 #       future information is unavailable.
-                layer_output = target_embeddings
                 for layer_id in range(1, self.config.transformer_dec_depth+1):
                     layer = decoder.decoder_stack[layer_id]
                     mem_key = 'layer_{:d}'.format(layer_id)
@@ -861,3 +817,9 @@ class ModelAdapter:
                         gather_attn(attn_tensor)
 
             return gathered_memories
+
+    def extract_graph(self, ids):
+        label_dict = self.model.target_labels_dict
+        inv_dict = {v: k for k, v in label_dict.items()}
+        strs = [[inv_dict[idn] for idn in row] for row in ids] #TODO is this indeed the right format of all the inputs?
+        return convert_text_to_graph(strs, self._config.maxlen, label_dict, self.model.target_labels_num, True)

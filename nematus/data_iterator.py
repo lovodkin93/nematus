@@ -75,9 +75,9 @@ class TextIterator:
                  token_batch_size=0,
                  keep_data_in_memory=False,
                  remove_parse=False,
+                 preprocess_script=None,
                  target_graph=False,
-                 target_labels_num=None,
-                 preprocess_script=None):
+                 target_labels_num=None):
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
@@ -283,7 +283,8 @@ class TextIterator:
                     tt_edge_time, tt_label_time = convert_text_to_graph(
                         tt, self.maxlen, self.target_labels, self.target_labels_num)
 
-                    tt_text = extract_text_from_combined_tokens(tt)
+                    tt_text = tt
+                    # tt_text = extract_text_from_combined_tokens(tt) # to use that convert_text_to_graph should rely on token_num
                     tt_indices = [lookup_token(w, self.target_dict,
                                                self.target_unk_val) for w in tt_text]
                     target.append((tt_indices, tt_edge_time, tt_label_time))
@@ -322,7 +323,7 @@ class TextIterator:
 
 
 def _last_word(idxs, tokens,
-               graceful=False):  # TODO use "graceful" at inference time, deal with cases where there is no last word
+               graceful=False): 
     if not idxs:
         if not graceful:
             raise IndexError("Asked for last word on an empty buffer")
@@ -336,7 +337,7 @@ def _last_word(idxs, tokens,
     return idxs[i:], tokens[i:]
 
 
-def convert_text_to_graph(x_target, max_len, labels_dict, num_labels):
+def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, graceful=False):
     # TODO connect reduce and labels to the popped out
     # TODO convert to work with indexes
     slf = 0
@@ -345,36 +346,33 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels):
     # TODO try results with separate edge type
     lft_edge = lft
     right_edge = right
-    # num_labels = len(labels_dict)
     edge_types_num = 3
-    # max_len, _ = x_target.shape
-    # edges = numpy.zeros((max_len, max_len, edge_types_num))
-
-    # edges[np.diag_indices_from(edges[:, :, slf]), slf] = 1
-    # for i in range(edges.shape[0]):
-    #     edges[i,i,slf] = 1
 
     edge_times = numpy.zeros((max_len, max_len, edge_types_num)) + float("inf")
     for i in range(edge_times.shape[0]):
         edge_times[i, i, slf] = i
 
-    # labels = numpy.zeros((max_len, max_len, num_labels))
     label_times = numpy.zeros((max_len, max_len, num_labels)) + float("inf")
+    # for i in range(label_times.shape[0]):
+    #     label_times[i, i, slf] = i # TODO labels do not need diagon (delete this for loop
     token_num = 0
     idxs_stack = []
     tokens_stack = []
     label = False
     root = False
     edge_end = "@@|"
+    label_start = "|@@"
     for token_id, token in enumerate(x_target):
         # last = tokens_stack
 
         if token.endswith(edge_end):
-            assert not label  # TODO gracefully convert, for inference time (just remove the assertion)
+            assert graceful or not label
             label = True
             if token == ConllSent.REDUCE_L + edge_end:
-                assert len(
-                    idxs_stack) > 1, "tried to create a left edge with 1 word or less in the buffer" + str(idxs_stack)
+                min_leng_cond = len(idxs_stack) > 1
+                if graceful and min_leng_cond:
+                    continue
+                assert min_leng_cond, "tried to create a left edge with 1 word or less in the buffer" + str(idxs_stack)
                 heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack)
                 idxs_stack, tokens_stack = idxs_stack[:-len(heads_ids)], tokens_stack[:-len(heads_ids)]
                 dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
@@ -382,7 +380,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels):
                 idxs_stack += heads_ids
                 tokens_stack += head_tokens
             elif token == ConllSent.REDUCE_R + edge_end:
-                root = "root" in x_target[token_id + 1]
+                root = "root" in x_target[token_id + 1] or graceful
                 dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
                 idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
                 heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=root)
@@ -401,9 +399,9 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels):
             for dependent in heads_ids:
                 edge_times[token_id, dependent, right_edge] = token_id + 1
 
-        elif token.startswith("|@@"):
-            assert label  # TODO gracefully convert, for inference time (make sure it works without the assertion)
-            assert "root" not in token or root  # TODO gracefully convert, for inference time (make sure it works without the assertion)
+        elif token.startswith(label_start):
+            assert graceful or label
+            assert graceful or "root" not in token or root
             if label:
                 label = False
                 for head in heads_ids:
@@ -417,8 +415,9 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels):
                     edge_times[token_id, dependent, right_edge] = token_id + 1
 
         else:
-            assert not label  # TODO gracefully convert, for inference time (just remove the assertion)
+            assert graceful or not label
+            label = False
             idxs_stack.append(token_id)
             tokens_stack.append(token)
-            token_num += 1  # number of tokens that are not transitions
+            token_num += 1  # number of tokens that are not transitions (actual subwords)
     return np.array(edge_times), np.array(label_times)

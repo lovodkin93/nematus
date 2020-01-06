@@ -13,12 +13,14 @@ try:
 except (ModuleNotFoundError, ImportError) as e:
     import exception
 
+
 def reset_dict_vals(d):
     """
     :param d: dictionary
     :return: vals are consecutive numbers starting from 0, sorted by the order of the original vals
     """
     return {key: i for i, (key, val) in enumerate(sorted(d.items(), key=lambda x:x[1]))}
+
 
 def reset_dict_indexes(d):
     """
@@ -95,11 +97,32 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
 
 
 def array_to_sparse_tensor(ar, base_val=float("inf")):
-    indices = np.nonzero(ar != base_val)
-    values = ar[indices]
-    shape = ar.shape
-    indices = np.transpose(indices)
-    sparse = tf.compat.v1.SparseTensorValue(indices, values, shape) # why are the inf in the values?
+    # indices = np.nonzero(ar != base_val)
+    # values = ar[indices]
+    # shape = ar.shape
+    # indices = np.transpose(indices)
+    # sparse = tf.compat.v1.SparseTensorValue(indices=indices, values=values, dense_shape=shape) #TODO why are the inf in the values?
+    sparse = dense_to_sparse_tensor(tf.convert_to_tensor(ar), base_val=base_val)
+    return sparse
+
+
+def dense_to_sparse_tensor(dns, base_val=float("inf")):
+    """
+    convert a dense tensor to a sparse one
+    :param dns: a tensor (currently dynamic shape is not supported)
+    :param base_val: which values to remove from the tensor (default float("inf")
+    :return:
+    """
+    # Find indices where the tensor is not zero
+    idx = tf.where(tf.not_equal(dns, base_val))
+
+    # Make the sparse tensor
+    # Use tf.shape(a_t, out_type=tf.int64) instead of a_t.get_shape()
+    # if tensor shape is dynamic
+    printops = [tf.Print([], [idx, tf.gather_nd(dns, idx)], "sanity", 10, 50)]
+    with tf.control_dependencies(printops):
+        # sparse = tf.compat.v1.SparseTensor(indices=idx, values=tf.gather_nd(dns, idx), dense_shape=dns.get_shape())
+        sparse = tf.compat.v1.SparseTensor(indices=idx, values=tf.gather_nd(dns, idx), dense_shape=tf.cast(tf.shape(dns), tf.int64))
     return sparse
 
 
@@ -133,6 +156,7 @@ def seq2words(seq, inverse_dictionary, join=True):
                              [inverse_dictionary],
                              join)
 
+
 def factoredseq2words(seq, inverse_dictionaries, join=True):
     assert len(seq.shape) == 2
     assert len(inverse_dictionaries) == seq.shape[1]
@@ -158,6 +182,7 @@ def factoredseq2words(seq, inverse_dictionaries, join=True):
         word = '|'.join(factors)
         words.append(word)
     return ' '.join(words) if join else words
+
 
 def reverse_dict(dictt):
     keys, values = list(zip(*list(dictt.items())))

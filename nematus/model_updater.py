@@ -3,6 +3,7 @@ import math
 import numpy
 import tensorflow as tf
 import util
+import numpy as np
 
 try:
     from .beam_search_sampler import BeamSearchSampler
@@ -52,10 +53,6 @@ class ModelUpdater(object):
         self._graph = _ModelUpdateGraph(config, num_gpus, replicas, optimizer,
                                         global_step)
 
-    # def update(self, session, write_summary, x, x_mask, y, y_mask, x_edges=None, x_labels=None, x_edges_time=None, x_labels_time=None):
-    def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
-                   x_labels_time=None):
-
         if config.loss_function == 'MRT':
             if config.sample_way == 'beam_search':
                 self._mrt_sampler = BeamSearchSampler(
@@ -70,6 +67,11 @@ class ModelUpdater(object):
                     models=[replicas[0]],
                     configs=[config],
                     beam_size=config.samplesN)
+
+    # def update(self, session, write_summary, x, x_mask, y, y_mask, x_edges=None, x_labels=None, x_edges_time=None, x_labels_time=None):
+    def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
+               x_labels_time=None):
+
         """Updates the model for a single minibatch.
 
         Args:
@@ -157,6 +159,11 @@ class ModelUpdater(object):
                 feed_dict[self._replicas[j].inputs.x_mask] = split_x_mask[i + j]
                 feed_dict[self._replicas[j].inputs.y] = split_y[i + j]
                 feed_dict[self._replicas[j].inputs.y_mask] = split_y_mask[i + j]
+                # print("inputs")
+                # print("x", split_x[i + j])
+                # print("xm", split_x_mask[i + j])
+                # print("y", split_y[i + j])
+                # print("ym", split_y_mask[i + j])
                 if self._config.loss_function == 'MRT':
                     # convert evaluation score of each candidates into tensor for subsequent expected risk calculations
                     feed_dict[self._replicas[j].inputs.scores] = split_score[i + j]
@@ -166,8 +173,12 @@ class ModelUpdater(object):
                 if self._config.target_graph:
                     # feed_dict[self._replicas[j].inputs.target_edges] = split_x_edges[i+j]
                     # feed_dict[self._replicas[j].inputs.target_labels] = split_x_labels[i+j]
-                    feed_dict[self._replicas[j].inputs.edge_times] = util.array_to_sparse_tensor(split_x_edges_time[i+j])
-                    feed_dict[self._replicas[j].inputs.label_times] = util.array_to_sparse_tensor(split_x_labels_time[i+j])
+                    feed_dict[self._replicas[j].inputs.edge_times] = util.array_to_sparse_tensor(split_x_edges_time[i+j]).eval(session=session)
+                    feed_dict[self._replicas[j].inputs.label_times] = util.array_to_sparse_tensor(split_x_labels_time[i+j]).eval(session=session)
+                    # print("lengths", len(self._replicas[j].inputs.label_times.indices[0]), len(set(self._replicas[j].inputs.label_times.indices[0])))
+                    # print("e", list(zip(*np.where(split_x_edges_time[i + j] != float("inf")))))
+                    print("input_edgeidxs", feed_dict[self._replicas[j].inputs.edge_times].indices)
+                    print("input_labelidxs", feed_dict[self._replicas[j].inputs.label_times].indices)
 
             if self._config.print_per_token_pro == False:
                 session.run([self._graph.accum_ops], feed_dict=feed_dict)
@@ -195,7 +206,6 @@ class ModelUpdater(object):
             return mean_loss_per_sent * x.shape[-1]
         else:
             return print_pro
-
     def _split_minibatch_into_n(self, x_mask, y_mask, n):
         """Determines how to split a minibatch into n equal-sized sub-batches.
 
@@ -245,6 +255,7 @@ class ModelUpdater(object):
 
         assert len(start_points) <= n
         return start_points
+
 
     def _split_minibatch_for_device_size(self, x_mask, y_mask,
                                          max_sents_per_device=0,
@@ -656,12 +667,12 @@ class _ModelUpdateGraph(object):
 
             summed_grad_vars = self._sum_gradients(all_grad_vars,
                                                self._replica_weights)
-
+            print("None gradients ", [v for g, v in summed_grad_vars if g is None])
             self._accum_ops = [tf.assign_add(self._accumulated_loss, summed_loss)]
 
             self._accum_ops += [tf.assign_add(self._accumulated_gradients[v.name],
                                           g * self._scaling_factor)
-                            for g, v in summed_grad_vars]
+                            for g, v in summed_grad_vars if g is not None] #TODO delete "if g is not None"
         else:
             self._accum_ops = print_pro
 
