@@ -5,8 +5,8 @@ class ModelInputs(object):
     def __init__(self, config):
         # variable dimensions
         seq_len, batch_size, mrt_sampleN = None, None, None
-        if config.target_graph:
-            seq_len = config.maxlen
+        # if config.target_graph:
+        #     seq_len = config.maxlen
         # mrt_sampleN = batch_size X sampleN
         self.x = tf.placeholder(
             name='x',
@@ -46,15 +46,7 @@ class ModelInputs(object):
             edge_labels_num = 3 # (self left right)
             if config.target_labels_num is None:
                 raise ValueError("target_labels_num is not defined, please figure it by the dictionary and supply it as a flag")
-            # self.target_edges = tf.placeholder(
-            #     name='target_edges',
-            #     shape=(seq_len, seq_len, edge_labels_num, batch_size),
-            #     dtype=tf.float32)
-            #
-            # self.target_labels = tf.placeholder(
-            #     name='target_labels',
-            #     shape=(seq_len, seq_len, config.target_labels_num, batch_size),
-            #     dtype=tf.float32)
+
             self.edge_times = tf.sparse.placeholder(
                 name='edge_times',
                 shape=(seq_len, seq_len, edge_labels_num, batch_size),

@@ -2,6 +2,7 @@
 
 import tensorflow as tf
 import numpy
+from docutils.nodes import target
 
 from sparse_sgcn import gcn, GCN
 from sgcn import gcn as gcn_dense
@@ -17,8 +18,10 @@ try:
         MaskedCrossEntropy, \
         get_right_context_mask, \
         get_positional_signal, \
-        get_tensor_from_times
+        get_tensor_from_times, \
+        get_all_times
     from .util import load_dict
+    from .tensorflow.python.ops.ragged.ragged_util import repeat
 except (ModuleNotFoundError, ImportError) as e:
     import model_inputs
     import mrt_utils as mru
@@ -30,8 +33,10 @@ except (ModuleNotFoundError, ImportError) as e:
         MaskedCrossEntropy, \
         get_right_context_mask, \
         get_positional_signal, \
-        get_tensor_from_times
+        get_tensor_from_times, \
+        get_all_times
     from util import load_dict
+    from tensorflow.python.ops.ragged.ragged_util import repeat
 
 INT_DTYPE = tf.int32
 FLOAT_DTYPE = tf.float32
@@ -98,12 +103,18 @@ class Transformer(object):
             # logits = tf.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
             # logits = tf.Print(logits, [tf.shape(self.target_ids_out)], "target_ids_out", 3)
             # Instantiate loss layer(s)
-            loss_layer = MaskedCrossEntropy(self.dec_vocab_size,
-                                            self.config.label_smoothing,
-                                            INT_DTYPE,
-                                            FLOAT_DTYPE,
-                                            time_major=False,
-                                            name='loss_layer')
+            print_ops = []
+            print_ops.append(tf.Print([], [tf.shape(logits), logits[0,:,0]], "logits shapes", 50, 100))
+            print_ops.append(tf.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
+            print_ops.append(tf.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+            with tf.control_dependencies(print_ops):
+                logits = logits * 1 #TODO delete
+                loss_layer = MaskedCrossEntropy(self.dec_vocab_size,
+                                                self.config.label_smoothing,
+                                                INT_DTYPE,
+                                                FLOAT_DTYPE,
+                                                time_major=False,
+                                                name='loss_layer')
             # Calculate loss
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
@@ -201,19 +212,13 @@ class Transformer(object):
         target_mask = tf.transpose(inputs.y_mask, perm=[1, 0])
 
         if self.config.target_graph:
-            # edge_labels = inputs.target_edges
-            # bias_labels = inputs.target_labels
-            general_edge_mask = inputs.edge_times
-            general_bias_mask = inputs.label_times
-            # edge_labels = tf.transpose(edge_labels, perm=[len(edge_labels.shape) - 1] + list(range(len(edge_labels.shape) - 1)))
-            # bias_labels = tf.transpose(bias_labels, perm=[len(bias_labels.shape) - 1] + list(range(len(bias_labels.shape) - 1)))
-            general_edge_mask = tf.sparse.transpose(general_edge_mask, perm=[len(general_edge_mask.shape) - 1] + list(range(len(general_edge_mask.shape) - 1)))
-            general_bias_mask = tf.sparse.transpose(general_bias_mask, perm=[len(general_bias_mask.shape) - 1] + list(range(len(general_bias_mask.shape) - 1)))
+            edge_times = inputs.edge_times
+            label_times = inputs.label_times
+            edge_times = tf.sparse.transpose(edge_times, perm=[len(edge_times.shape) - 1] + list(range(len(edge_times.shape) - 1)))
+            label_times = tf.sparse.transpose(label_times, perm=[len(label_times.shape) - 1] + list(range(len(label_times.shape) - 1)))
         else:
-            # edge_labels = None
-            # bias_labels = None
-            general_edge_mask = None
-            general_bias_mask = None
+            edge_times = None
+            label_times = None
 
         # target_ids_in is a bit more complicated since we need to insert
         # the special <GO> symbol (with value 1) at the start of each sentence
@@ -224,7 +229,7 @@ class Transformer(object):
         target_ids_in = tf.transpose(tmp, perm=[1, 0])
 
         return (source_ids, source_mask, target_ids_in, target_ids_out,
-                target_mask, general_edge_mask, general_bias_mask)
+                target_mask, edge_times, label_times)
         # return (source_ids, source_mask, target_ids_in, target_ids_out,
         #         target_mask, edge_labels, bias_labels, general_edge_mask, general_bias_mask)
 
@@ -368,11 +373,6 @@ class TransformerDecoder(object):
     def _get_initial_memories(self, batch_size, beam_size):
         """ Initializes decoder memories used for accelerated inference. """
         initial_memories = dict()
-        if self.config.target_graph:
-            for layer_id in range(self.config.target_gcn_layers):
-                initial_memories['gcn_layer_{:d}'.format(layer_id)] = \
-                    {'keys': tf.tile(tf.zeros([batch_size, 0, self.config.state_size]), [beam_size, 1, 1]),
-                     'values': tf.tile(tf.zeros([batch_size, 0, self.config.state_size]), [beam_size, 1, 1])} #TODO copy pasted from below might be wrong sizes
         for layer_id in range(1, self.config.transformer_dec_depth + 1):
             initial_memories['layer_{:d}'.format(layer_id)] = \
                 {'keys': tf.tile(tf.zeros([batch_size, 0, self.config.state_size]), [beam_size, 1, 1]),
@@ -384,9 +384,8 @@ class TransformerDecoder(object):
         # Initialize gcn layers
         if self.config.target_graph:
             for layer_id in range(self.config.target_gcn_layers):
-                self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, bias_labels_num=self.labels_num, edge_labels_num=3,
+                self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1, bias_labels_num=self.labels_num, edge_labels_num=3,
                     activation=tf.nn.relu, use_bias=True, gate=True) #TODO use bias, use gate
-                # dec_input += orig_input # residual connection
         # Initialize layers
         with tf.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -421,13 +420,12 @@ class TransformerDecoder(object):
                 self.decoder_stack[layer_id]['cross_attn'] = cross_attn_block
                 self.decoder_stack[layer_id]['ffn'] = ffn_block
 
-    # def decode_at_train(self, target_ids, enc_output, cross_attn_mask, edge_labels, bias_labels, general_edge_mask, general_bias_mask):
     def decode_at_train(self, target_ids, enc_output, cross_attn_mask, edge_times, labels_times):
         """ Returns the probability distribution over target-side tokens conditioned on the output of the encoder;
          performs decoding in parallel at training time. """
         def _decode_all(target_embeddings):
             """ Decodes the encoder-generated representations into target-side logits in parallel. """
-
+            #TODO embedd per token and perhaps parallel the second to last decoder blocks
             dec_input = target_embeddings
             # add gcn layers
             if self.config.target_graph:
@@ -435,28 +433,39 @@ class TransformerDecoder(object):
                     orig_input = dec_input
                     inputs = [dec_input, edges, labels]
                     print_ops = []
-                    print_ops.append(tf.Print([], [tf.shape(item) for item in inputs], "input shapes"))
-                    print_ops.append(tf.Print([], [tf.shape(enc_output), enc_output], "end_out shape"))
-
+                    print_ops.append(tf.Print([], [tf.shape(item) for item in inputs], "input shapes", 50, 100))
+                    print_ops.append(tf.Print([], [tf.shape(enc_output), enc_output], "end_out shape", 50, 100))
                     with tf.control_dependencies(print_ops):
                         dec_input = self.gcn_stack[layer_id].apply(inputs)
-                    # dec_input = gcn(
-                    #     [dec_input, labels, edges], bias_labels_num=self.labels_num, edge_labels_num=3, activation=tf.nn.relu)
                     dec_input += orig_input # residual connection
+                dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
 
             # Propagate inputs through the encoder stack
             dec_output = dec_input
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
-                dec_output, _ = self.decoder_stack[layer_id][
-                    'self_attn'].forward(dec_output, None, self_attn_mask)
                 print_ops = []
-                print_ops.append(tf.Print([], [tf.shape(dec_output), tf.shape(cross_attn_mask), cross_attn_mask], "after block" + str(layer_id)))
+                print_ops.append(tf.Print([], [tf.shape(dec_output), dec_output[0,:,0]], "input to self attn first emb dim", 50, 1000))
+                print_ops.append(tf.Print([], [tf.shape(dec_output), dec_output[0,:,-1]], "input to self attn last emb dim", 50, 1000))
+                print_ops.append(
+                    tf.Print([], [tf.shape(dec_output), dec_output[-1, :, 0]], "last in batch - input to self attn first emb dim", 50,
+                             1000))
+                print_ops.append(
+                    tf.Print([], [tf.shape(dec_output), dec_output[-1, :, -1]], "last in batch - input to self attn last emb dim", 50,
+                             1000))
+                # print_ops.append(tf.Print([], [tf.shape(self_attn_mask), self_attn_mask], "self_attn_mask"))
+                with tf.control_dependencies(print_ops):
+                    dec_output, _ = self.decoder_stack[layer_id][
+                        'self_attn'].forward(dec_output, None, self_attn_mask) # avoid attending sentences with no words and words after the sentence (zeros)
+                print_ops = []
+                print_ops.append(tf.Print([], [tf.shape(dec_input), dec_input], "dec_input shape", 50, 100))
+                print_ops.append(tf.Print([], [tf.shape(dec_output)], "after block" + str(layer_id), 50, 100))
+                print_ops.append(tf.Print([], [tf.shape(cross_attn_mask), cross_attn_mask], "cross attention" + str(layer_id), 50, 100))
                 with tf.control_dependencies(print_ops):
                     dec_output, _ = \
                         self.decoder_stack[layer_id]['cross_attn'].forward(
-                        dec_output, enc_output, cross_attn_mask)
+                        dec_output, enc_output, cross_attn_mask) #TODO what happens with cross attention (currently untiled)
                 print_ops = []
-                print_ops.append(tf.Print([], [tf.shape(dec_output)], "decoded succsessfully"))
+                print_ops.append(tf.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 with tf.control_dependencies(print_ops):
                     dec_output = self.decoder_stack[
                         layer_id]['ffn'].forward(dec_output)
@@ -466,9 +475,23 @@ class TransformerDecoder(object):
             """ Pre-processes target token ids before they're passed on as input to the decoder
             for parallel decoding. """
 
+            if self.config.target_graph:
+                #padding == self.config.maxlen - tf.shape(target_ids)[1] == self.config.maxlen - tf.shape(positional_signal)
+                padding = self.config.maxlen + 1 - timesteps
+                printops = []
+                printops.append(tf.Print([], [tf.shape(target_ids), target_ids[:4,:40]], "target_ids shape and two first in batch", 50, 300))
+                printops.append(tf.Print([], [target_shape, tf.shape(target_ids)[1]], "target shape", 300, 50))
+                printops.append(tf.Print([], [self.config.maxlen], "maxlen", 300, 50))
+                with tf.control_dependencies(printops):
+                    padded_target_ids = tf.pad(target_ids, [[0, 0], [0, padding]])
+                    padded_positional_signal = tf.pad(positional_signal, [[0, 0], [0, padding], [0, 0]])
+            else:
+                padded_target_ids = target_ids
+                padded_positional_signal = positional_signal
             # Embed target_ids
-            target_embeddings = self._embed(target_ids)
-            target_embeddings += positional_signal
+            target_embeddings = self._embed(padded_target_ids)
+            target_embeddings += padded_positional_signal
+
             if self.config.transformer_dropout_embeddings > 0:
                 target_embeddings = tf.layers.dropout(target_embeddings,
                                                       rate=self.config.transformer_dropout_embeddings, training=self.training)
@@ -479,18 +502,16 @@ class TransformerDecoder(object):
             # Embed the model's predictions up to the current time-step; add
             # positional information, mask
             target_embeddings = _prepare_targets()
-            # output = tf.py_func(self.extract_target_graph, [target_ids], tf.int32, stateful=False)
-            # target_embeddings = tf.Print(target_embeddings, [tf.shape(output)], "py_func output", 1)
-            # target_embeddings = tf.Print(target_embeddings, [tf.shape(target_ids)], "target ids shape", 1)
-            # target_embeddings = tf.Print(target_embeddings, [target_ids], "target_ids", 1,summarize=10000)
-            # target_embeddings = tf.Print(target_embeddings, [tf.shape(target_embeddings)], "target embeddings?", 1)
-            # target_embeddings = tf.Print(target_embeddings, [target_embeddings[0:2,:,0], tf.shape(target_embeddings[0:2, :, 0])], "Are those embeddings of different sentences?", 1,summarize=1000)
 
             # Pass encoder context and decoder embeddings through the decoder
             dec_output = _decode_all(target_embeddings)
             # Project decoder stack outputs and apply the soft-max
             # non-linearity
-            full_logits = self.softmax_projection_layer.project(dec_output)
+            printops = []
+            printops.append(
+                tf.Print([], [tf.shape(dec_output), dec_output], "dec_output", 300, 50))
+            with tf.control_dependencies(printops):
+                full_logits = self.softmax_projection_layer.project(dec_output)
             return full_logits
 
 
@@ -500,24 +521,65 @@ class TransformerDecoder(object):
                 enc_output = tf.transpose(enc_output, [1, 0, 2])
                 cross_attn_mask = tf.transpose(cross_attn_mask, [3, 1, 2, 0])
 
-            self_attn_mask = get_right_context_mask(tf.shape(target_ids)[-1])
-            positional_signal = get_positional_signal(tf.shape(target_ids)[-1],
+            target_shape = tf.shape(target_ids)
+            batch_size = target_shape[0]
+            timesteps = target_shape[-1]
+            printops = []
+            printops.append(
+                tf.Print([], [timesteps], "timestep changes?", 300, 50))
+            printops.append(tf.Print([], [target_shape], "target shape", 300, 50))
+            printops.append(tf.Print([], [self.config.maxlen], "maxlen", 300, 50))
+            printops.append(tf.Print([], [tf.shape(target_ids), target_ids], "target_ids are they like decoded x (if not should decoded x lose the beginning 1=<GO>?)", 300, 50))
+            with tf.control_dependencies(printops):
+                self_attn_mask = get_right_context_mask(timesteps)
+            positional_signal = get_positional_signal(timesteps,
                                                       self.config.embedding_size,
                                                       FLOAT_DTYPE)
             if self.config.target_graph:
-                # #     target_ids, edge_labels, bias_labels = _extract_labels(target_ids)
-                # edges_mask = get_target_edges_mask(tf.shape(target_ids)[-1], general_edge_mask)
-                # bias_mask = get_target_bias_mask(tf.shape(target_ids)[-1], general_bias_mask)
-                timestep = tf.shape(target_ids)[-1]
-                edges = get_tensor_from_times(timestep, edge_times)
-                labels = get_tensor_from_times(timestep, labels_times)
-                # print_op = tf.Prinint(tf.shape(labels), labels)
-            printops = []
-            printops.append(
-                tf.Print([], [edges.indices, edges.values], "masked edges", 300, 50))
+                # self_attn_mask = None
+                # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
+                self_attn_mask = tf.tile(self_attn_mask, [1, 1, batch_size, 1])
+                self_attn_mask = tf.transpose(self_attn_mask, [2, 1, 0, 3])
+                # self_attn_mask = tf.reshape(self_attn_mask, [batch_size  * timesteps, -1, timesteps, 1])
+                #TODO self_attn_mask is wrong is it currently duplicating (None looks on current empty words too)
+                target_ids = repeat(target_ids, timesteps, 0)
+                diagonals_mask = tf.ones([timesteps, timesteps], dtype=target_ids.dtype)
+                diagonals_mask = tf.matrix_band_part(diagonals_mask, -1, 0)
+                # diagonals_mask = tf.linalg.set_diag(diagonals_mask, tf.zeros(tf.shape(diagonals_mask)[0:-1], dtype = target_ids.dtype))
+                diagonals_mask = tf.tile(diagonals_mask, [batch_size, 1])
+                target_ids *= diagonals_mask
+                edges = get_all_times(timesteps, edge_times)
+                labels = get_all_times(timesteps, labels_times)
+                # edges = get_tensor_from_times(timestep, labels_times)
+                # labels = get_tensor_from_times(timestep, labels_times)
 
-            printops.append(
-                tf.Print([], [labels.indices, labels.values], "masked labels", 300, 50))
-            with tf.control_dependencies(printops):
+                # edges = tf.cast(edge_times, dtype=tf.float32)
+                # labels = tf.cast(labels_times, dtype=tf.float32)
+                # printops = []
+                # # printops.append(
+                # #     tf.Print([], [tf.shape(try_all_times), try_all_times.indices, try_all_times.values], "get_all_times_check", 300, 50))
+                # printops.append(
+                #     tf.Print([], [tf.shape(self_attn_mask), self_attn_mask[:,:,:,:20]], "masked attention", 300, 50))
+                # printops.append(
+                #     tf.Print([], [tf.shape(edges), edges.indices, edges.values], "masked edges", 300, 50))
+                # printops.append(
+                #     tf.Print([], [tf.shape(labels), labels.indices, labels.values], "masked labels", 300, 50))
+                # with tf.control_dependencies(printops):
+                logits = _decoding_function()
+                diag = tf.range(timesteps)
+                diag = tf.expand_dims(diag, 1)
+                diag = tf.concat([diag, diag], 1) # [[1,1],[2,2]...[timesteps,timesteps]]
+                diag = repeat(diag, self.config.target_vocab_size, 0)
+
+                vocab_locs = tf.range(self.config.target_vocab_size)
+                vocab_locs = tf.tile(vocab_locs, [timesteps])
+                vocab_locs = tf.expand_dims(vocab_locs, 1)
+                indices = tf.concat([diag, vocab_locs], 1)
+                indices = tf.tile(indices, [batch_size, 1])
+
+
+                logits = tf.gather_nd(logits, indices)
+                logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
+            else:
                 logits = _decoding_function()
         return logits

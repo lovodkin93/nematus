@@ -28,13 +28,14 @@ def reset_dict_indexes(d):
     :return: keys are consecutive numbers starting from 0, sorted by the order of the keys
     """
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
-# batch preparation
-# def prepare_data(seqs_x, seqs_y, seq_edges, seq_labels, seq_edges_time, seq_labels_time, n_factors, maxlen=None):
+
+
 def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, maxlen=None):
 
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
+    print("do lengthes change?", lengths_x, lengths_y) #TODO check and solve
 
     # move edges to length major instead of batch major
     if seq_edges_time is not None:
@@ -96,33 +97,37 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
 
 
-def array_to_sparse_tensor(ar, base_val=float("inf")):
+def array_to_sparse_tensor(ar, base_val=float("inf"), feeding=False):
     # indices = np.nonzero(ar != base_val)
     # values = ar[indices]
     # shape = ar.shape
     # indices = np.transpose(indices)
     # sparse = tf.compat.v1.SparseTensorValue(indices=indices, values=values, dense_shape=shape) #TODO why are the inf in the values?
-    sparse = dense_to_sparse_tensor(tf.convert_to_tensor(ar), base_val=base_val)
+    if not feeding:
+        ar = tf.convert_to_tensor(ar)
+    sparse = dense_to_sparse_tensor(ar, base_val=base_val, feeding=feeding)
     return sparse
 
 
-def dense_to_sparse_tensor(dns, base_val=float("inf")):
+def dense_to_sparse_tensor(dns, base_val=float("inf"), feeding=False):
     """
     convert a dense tensor to a sparse one
     :param dns: a tensor (currently dynamic shape is not supported)
     :param base_val: which values to remove from the tensor (default float("inf")
     :return:
     """
+    print(dns, base_val, "is it not tensors? if so, if feeding = false use numpy instead")
     # Find indices where the tensor is not zero
-    idx = tf.where(tf.not_equal(dns, base_val))
 
-    # Make the sparse tensor
-    # Use tf.shape(a_t, out_type=tf.int64) instead of a_t.get_shape()
-    # if tensor shape is dynamic
-    printops = [tf.Print([], [idx, tf.gather_nd(dns, idx)], "sanity", 10, 50)]
-    with tf.control_dependencies(printops):
-        # sparse = tf.compat.v1.SparseTensor(indices=idx, values=tf.gather_nd(dns, idx), dense_shape=dns.get_shape())
-        sparse = tf.compat.v1.SparseTensor(indices=idx, values=tf.gather_nd(dns, idx), dense_shape=tf.cast(tf.shape(dns), tf.int64))
+    if feeding:
+        sparse_init = tf.compat.v1.SparseTensorValue
+        idx = np.where(dns != base_val)
+        print(idx, tf.where(tf.not_equal(dns, base_val)), tf.convert_to_tensor(idx) == tf.where(tf.not_equal(dns, base_val)))
+    else:
+        idx = tf.where(tf.not_equal(dns, base_val))
+        sparse_init = tf.compat.v1.SparseTensor
+    sparse = sparse_init(indices=idx, values=tf.gather_nd(dns, idx), dense_shape=tf.cast(tf.shape(dns), tf.int64))
+    # print(sparse, "feeding", feeding)
     return sparse
 
 

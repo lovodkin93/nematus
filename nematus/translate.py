@@ -68,7 +68,7 @@ def main(settings):
             models.append(model)
 
     # Add smoothing variables (if the models were trained with smoothing).
-    #FIXME Assumes either all models were trained with smoothing or none were.
+    # FIXME Assumes either all models were trained with smoothing or none were.
     if configs[0].exponential_smoothing > 0.0:
         smoothing = ExponentialSmoothing(configs[0].exponential_smoothing)
 

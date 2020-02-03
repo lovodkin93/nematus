@@ -346,11 +346,13 @@ class ConfigSpecification:
             visible_arg_names=['--target_graph'],
             action='store_true',
             help='True if system also parses the target (default: False)'))
+
         group.append(ParameterSpecification(
             name='target_labels_num', default=None,
             visible_arg_names=['--target_labels_num'],
             type=int,
             help='Number of possible labels in target graphs, if target_graph is used.'))
+
         group.append(ParameterSpecification(
             name='target_gcn_layers', default=2,
             visible_arg_names=['--target_gcn_layers'],

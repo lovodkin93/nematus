@@ -339,6 +339,15 @@ def _generate_while_loop_body_func(model_adapters, decoding_functions,
         next_ids = tf.transpose(next_ids, [1, 0]) # [beam_size, batch_size_x]
         next_ids = tf.reshape(next_ids, [-1])     # [beam_size * batch_size_x]
 
+        alive_seq_batch = tf.transpose(alive_sequences, [1, 0, 2]) # [beam_size, batch_size_x, seq_len]
+        printops = []
+        printops.append(
+            tf.Print([], [tf.shape(tf.reshape(alive_seq_batch, [tf.size(next_ids), -1]))], "reshaped seq", 10, 50))
+        printops.append(
+            tf.Print([], [tf.shape(alive_sequences)], "alive seqs", 10, 50))
+        with tf.control_dependencies(printops):
+            alive_seq_batch = tf.reshape(alive_seq_batch, [tf.size(next_ids), -1]) # [beam_size * batch_size_x, seq_len]
+
         # Run the vocab IDs through the decoders and get the log probs for all
         # possible extensions.
         sum_log_probs = None
@@ -346,7 +355,7 @@ def _generate_while_loop_body_func(model_adapters, decoding_functions,
 
             # Get logits.
             step_logits, alive_memories[i] = decoding_functions[i](
-                next_ids, current_time_step, alive_memories[i])
+                next_ids, current_time_step, alive_memories[i], alive_seq_batch)
 
             # Calculate the scores for all possible extensions of alive
             # hypotheses.

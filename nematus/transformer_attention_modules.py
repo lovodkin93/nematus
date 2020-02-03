@@ -122,7 +122,7 @@ class MultiHeadAttentionLayer(object):
         return merged_inputs
 
     def _dot_product_attn(self, queries, keys, values, attn_mask, scaling_on):
-        """ Defines the dot-product attention function; see Vasvani et al.(2017), Eq.(1). """
+        """ Defines the dot-product attention function; see Vaswani et al.(2017), Eq.(1). """
         # query/ key/ value have shape = [batch_size, time_steps, num_heads, num_features]
         # Tile keys and values tensors to match the number of decoding beams; ignored if already done by fusion module
         num_beams = get_shape_list(queries)[0] // get_shape_list(keys)[0]
@@ -147,7 +147,13 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(tf.greater(num_beams, 1),
                                 lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 lambda: attn_mask)
-            attn_logits += attn_mask
+            print_ops = []
+            print_ops.append(tf.Print([], [num_beams], "num_beams", 10, 100))
+            print_ops.append(tf.Print([], [tf.shape(attn_logits), attn_logits], "attn_logits", 10, 100))
+            print_ops.append(tf.Print([], [tf.shape(attn_mask), attn_mask[35:,:,:,:]], "final_attn_mask", 10, 100))
+            print_ops.append(tf.Print([], [tf.shape(attn_logits + attn_mask), attn_logits + attn_mask], "final weights", 10, 100))
+            with tf.control_dependencies(print_ops):
+                attn_logits += attn_mask
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)

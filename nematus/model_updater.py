@@ -68,10 +68,9 @@ class ModelUpdater(object):
                     configs=[config],
                     beam_size=config.samplesN)
 
-    # def update(self, session, write_summary, x, x_mask, y, y_mask, x_edges=None, x_labels=None, x_edges_time=None, x_labels_time=None):
+
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
                x_labels_time=None):
-
         """Updates the model for a single minibatch.
 
         Args:
@@ -100,13 +99,16 @@ class ModelUpdater(object):
         if self._config.loss_function == 'MRT':
             # Generate candidate sentences (sampling) based on source sentences in each minibatch
             # outputs are 'sampleN' times larger than inputs
-            # replica only use single model since multi-GPU sampling isn't supported in Transformer
+            # replica only use single model since multi-GPU sampling isn't
+            # supported in Transformer
             x, x_mask, y, y_mask, refs, index = \
                 mru.full_sampler(self._replicas[0], self._mrt_sampler, session,
                                  self._config, x, x_mask, y, y_mask)
 
-            # calculate evaluation metrics score for each sampled candidate sentence
-            score = mru.cal_metrics_score(y, self._config, num_to_target, refs, index)
+            # calculate evaluation metrics score for each sampled candidate
+            # sentence
+            score = mru.cal_metrics_score(
+                y, self._config, num_to_target, refs, index)
             # convert list to numpy list
             x = numpy.array(x)
             x_mask = numpy.array(x_mask)
@@ -114,7 +116,7 @@ class ModelUpdater(object):
             y_mask = numpy.array(y_mask)
 
         if (self._config.max_sentences_per_device != 0
-            or self._config.max_tokens_per_device != 0):
+                or self._config.max_tokens_per_device != 0):
             start_points = self._split_minibatch_for_device_size(
                 x_mask, y_mask, self._config.max_sentences_per_device,
                 self._config.max_tokens_per_device, index)
@@ -127,10 +129,12 @@ class ModelUpdater(object):
 
         if self._config.loss_function == 'MRT':
             split_x, split_x_mask, split_y, split_y_mask, split_score, weights, split_index = \
-                self._split_and_pad_minibatch_mrt(x, x_mask, y, y_mask, score, start_points, index)
+                self._split_and_pad_minibatch_mrt(
+                    x, x_mask, y, y_mask, score, start_points, index)
         else:
             split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights = \
-                self._split_and_pad_minibatch(x, x_mask, y, y_mask, x_edges_time, x_labels_time, start_points)
+                self._split_and_pad_minibatch(
+                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, start_points)
 
         # Normalize the weights so that _ModelUpdateGraph can just sum the
         # weighted gradients from each sub-batch (without needing a
@@ -144,7 +148,8 @@ class ModelUpdater(object):
             scaling_factor = x.shape[-1] / self._config.batch_size
         else:
             # Actual batch size / Max batch size, in tokens
-            scaling_factor = (x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
+            scaling_factor = (
+                x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
 
         # Accumulate gradients.
         # the list to store the per-token-probability if required
@@ -153,35 +158,33 @@ class ModelUpdater(object):
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
             for j in range(len(self._replicas)):
-                feed_dict[self._graph.replica_weights[j]] \
-                    = normalized_weights[i + j]
+                feed_dict[self._graph.replica_weights[
+                    j]] = normalized_weights[i + j]
                 feed_dict[self._replicas[j].inputs.x] = split_x[i + j]
-                feed_dict[self._replicas[j].inputs.x_mask] = split_x_mask[i + j]
+                feed_dict[self._replicas[
+                    j].inputs.x_mask] = split_x_mask[i + j]
                 feed_dict[self._replicas[j].inputs.y] = split_y[i + j]
-                feed_dict[self._replicas[j].inputs.y_mask] = split_y_mask[i + j]
-                # print("inputs")
-                # print("x", split_x[i + j])
-                # print("xm", split_x_mask[i + j])
-                # print("y", split_y[i + j])
-                # print("ym", split_y_mask[i + j])
+                feed_dict[self._replicas[
+                    j].inputs.y_mask] = split_y_mask[i + j]
                 if self._config.loss_function == 'MRT':
-                    # convert evaluation score of each candidates into tensor for subsequent expected risk calculations
-                    feed_dict[self._replicas[j].inputs.scores] = split_score[i + j]
-                    # also convey information of starting point of each source sentences to later calculation
-                    feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
+                    # convert evaluation score of each candidates into tensor
+                    # for subsequent expected risk calculations
+                    feed_dict[self._replicas[
+                        j].inputs.scores] = split_score[i + j]
+                    # also convey information of starting point of each source
+                    # sentences to later calculation
+                    feed_dict[self._replicas[
+                        j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = True
                 if self._config.target_graph:
-                    # feed_dict[self._replicas[j].inputs.target_edges] = split_x_edges[i+j]
-                    # feed_dict[self._replicas[j].inputs.target_labels] = split_x_labels[i+j]
-                    feed_dict[self._replicas[j].inputs.edge_times] = util.array_to_sparse_tensor(split_x_edges_time[i+j]).eval(session=session)
-                    feed_dict[self._replicas[j].inputs.label_times] = util.array_to_sparse_tensor(split_x_labels_time[i+j]).eval(session=session)
-                    # print("lengths", len(self._replicas[j].inputs.label_times.indices[0]), len(set(self._replicas[j].inputs.label_times.indices[0])))
-                    # print("e", list(zip(*np.where(split_x_edges_time[i + j] != float("inf")))))
-                    print("input_edgeidxs", feed_dict[self._replicas[j].inputs.edge_times].indices)
-                    print("input_labelidxs", feed_dict[self._replicas[j].inputs.label_times].indices)
+                    feed_dict[self._replicas[j].inputs.edge_times] = util.array_to_sparse_tensor(
+                        split_x_edges_time[i + j], feeding=True)
+                    feed_dict[self._replicas[j].inputs.label_times] = util.array_to_sparse_tensor(
+                        split_x_labels_time[i + j], feeding=True)
 
             if self._config.print_per_token_pro == False:
-                session.run([self._graph.accum_ops], feed_dict=feed_dict)
+                run_options = tf.RunOptions(report_tensor_allocations_upon_oom=True)
+                session.run([self._graph.accum_ops], feed_dict=feed_dict, options=run_options)
             else:
                 tmp = session.run([self._graph.accum_ops], feed_dict=feed_dict)
                 for i in range(len(tmp[0])):
@@ -191,7 +194,9 @@ class ModelUpdater(object):
             # Apply the gradients (and optionally write the summary).
             if not write_summary:
                 fetches = self._graph.apply_ops
-                global_step, apply_grads, mean_loss_per_sent = session.run(fetches)
+
+                global_step, apply_grads, mean_loss_per_sent = session.run(
+                    fetches)
             else:
                 assert self._summary_writer is not None
                 fetches = self._graph.apply_ops + self._graph.summary_ops
@@ -206,6 +211,7 @@ class ModelUpdater(object):
             return mean_loss_per_sent * x.shape[-1]
         else:
             return print_pro
+
     def _split_minibatch_into_n(self, x_mask, y_mask, n):
         """Determines how to split a minibatch into n equal-sized sub-batches.
 
@@ -239,11 +245,11 @@ class ModelUpdater(object):
             s_longest = source_lengths[i]
             t_longest = target_lengths[i]
             next_start_point = None
-            for j in range(i+1, num_sents):
+            for j in range(i + 1, num_sents):
                 s_longest = max(s_longest, source_lengths[j])
                 t_longest = max(t_longest, target_lengths[j])
-                s_tokens = s_longest * (j-i+1)
-                t_tokens = t_longest * (j-i+1)
+                s_tokens = s_longest * (j - i + 1)
+                t_tokens = t_longest * (j - i + 1)
                 if s_tokens + t_tokens > soft_limit:
                     # Allow the sub-batch to be over-filled, but only by one
                     # sentence worth of tokens.
@@ -255,7 +261,6 @@ class ModelUpdater(object):
 
         assert len(start_points) <= n
         return start_points
-
 
     def _split_minibatch_for_device_size(self, x_mask, y_mask,
                                          max_sents_per_device=0,
@@ -297,13 +302,13 @@ class ModelUpdater(object):
                     s_longest = source_lengths[i]
                     t_longest = target_lengths[i]
                     next_start_point = None
-                    for j in range(i+1, num_sents):
+                    for j in range(i + 1, num_sents):
                         s_longest = max(s_longest, source_lengths[j])
                         t_longest = max(t_longest, target_lengths[j])
-                        s_tokens = s_longest * (j-i+1)
-                        t_tokens = t_longest * (j-i+1)
+                        s_tokens = s_longest * (j - i + 1)
+                        t_tokens = t_longest * (j - i + 1)
                         if (s_tokens > max_tokens_per_device
-                            or t_tokens > max_tokens_per_device):
+                                or t_tokens > max_tokens_per_device):
                             next_start_point = j
                             break
                     if next_start_point is None:
@@ -341,9 +346,10 @@ class ModelUpdater(object):
         return start_points
 
     def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time,
-                                     start_points):
+                                 start_points):
 
-        # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges, x_labels, x_edges_time, x_labels_time, start_points):
+        # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges,
+        # x_labels, x_edges_time, x_labels_time, start_points):
         """Splits a minibatch according to a list of split points.
 
         Args:
@@ -391,11 +397,11 @@ class ModelUpdater(object):
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_x_mask]
         split_x = trim_arrays(split_x, max_lens)
         split_x_mask = trim_arrays(split_x_mask, max_lens)
-        if split_x_edges_time is not None:
-            # split_x_edges = trim_arrays(split_x_edges, max_lens)
-            # split_x_labels = trim_arrays(split_x_labels, max_lens)
-            split_x_edges_time = trim_arrays(split_x_edges_time, max_lens)
-            split_x_labels_time = trim_arrays(split_x_labels_time, max_lens)
+        # if split_x_edges_time is not None:
+        #     # split_x_edges = trim_arrays(split_x_edges, max_lens)
+        #     # split_x_labels = trim_arrays(split_x_labels, max_lens)
+        #     split_x_edges_time = trim_arrays(split_x_edges_time, max_lens)
+        #     split_x_labels_time = trim_arrays(split_x_labels_time, max_lens)
 
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_y_mask]
         split_y = trim_arrays(split_y, max_lens)
@@ -405,7 +411,8 @@ class ModelUpdater(object):
         # source and target tokens. Note that this counts actual tokens
         # (up to and including the <EOS> tokens) not the capacity of the
         # sub-batch.
-        # TODO: loss is calculated according to target side, hence here should be weighted by target tokens only.
+        # TODO: loss is calculated according to target side, hence here should
+        # be weighted by target tokens only.
         weights = [numpy.sum(t)
                    for t in split_y_mask]
 
@@ -435,8 +442,8 @@ class ModelUpdater(object):
             weights.append(0.0)
 
         return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights
-        # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges, split_x_labels, split_x_edges_time, split_x_labels_time, weights
-
+        # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges,
+        # split_x_labels, split_x_edges_time, split_x_labels_time, weights
 
     def _split_and_pad_minibatch_mrt(self, x, x_mask, y, y_mask, score, start_points, index):
         """Splits a minibatch according to a list of split points (function basically same as _split_and_pad_minibatch),
@@ -467,8 +474,10 @@ class ModelUpdater(object):
         start_points_new = start_points + [batch_size]
         s_index = dict(zip(index[0], list(range(len(index[0])))))
         for i in range(len(start_points_new) - 1):
-            sub_list = index[0][s_index[start_points_new[i]]:s_index[start_points_new[i + 1]] + 1]
-            tmp.append(numpy.array([l - start_points_new[i] for l in sub_list]))
+            sub_list = index[0][s_index[start_points_new[i]]
+                :s_index[start_points_new[i + 1]] + 1]
+            tmp.append(numpy.array([l - start_points_new[i]
+                                    for l in sub_list]))
 
         def split_array(a, start_points):
             batch_size = a.shape[-1]
@@ -480,7 +489,6 @@ class ModelUpdater(object):
         split_y = split_array(y, start_points)
         split_y_mask = split_array(y_mask, start_points)
         split_score = split_array(score, start_points)
-
 
         # Trim arrays so that the seq_len dimension is equal to the longest
         # source / target sentence in the sub-batch (rather than the whole
@@ -497,8 +505,9 @@ class ModelUpdater(object):
         split_y = trim_arrays(split_y, max_lens)
         split_y_mask = trim_arrays(split_y_mask, max_lens)
 
-        # number of real sentences(before sampling candidates) of each sub-batch.
-        weights = [len(t)-1 for t in tmp]
+        # number of real sentences(before sampling candidates) of each
+        # sub-batch.
+        weights = [len(t) - 1 for t in tmp]
 
         # Pad the split lists with dummy arrays so that the total number of
         # sub-batches is a multiple of the number of replicas.
@@ -585,7 +594,7 @@ class _ModelUpdateGraph(object):
         for i, v in enumerate(tf.trainable_variables()):
             self._trainables[v.name] = v
             g = tf.get_variable(
-                name='accum'+str(i),  # FIXME better name. Variable scope?
+                name='accum' + str(i),  # FIXME better name. Variable scope?
                 initializer=tf.zeros_like(v),
                 trainable=False)
             self._accumulated_gradients[v.name] = g
@@ -623,7 +632,7 @@ class _ModelUpdateGraph(object):
         """Defines a set of ops to reset the accumulated values to zero."""
         self._reset_ops = [v.assign(tf.zeros_like(v))
                            for v in [self._accumulated_loss] +
-                                    list(self._accumulated_gradients.values())]
+                           list(self._accumulated_gradients.values())]
 
     def _define_accum_ops(self):
         """Defines the graph nodes used for a single accumulation step."""
@@ -636,10 +645,11 @@ class _ModelUpdateGraph(object):
             device_spec = tf.DeviceSpec(device_type=device_type,
                                         device_index=i)
             with tf.device(device_spec):
-                with tf.variable_scope(tf.get_variable_scope(), reuse=(i>0)):
+                with tf.variable_scope(tf.get_variable_scope(), reuse=(i > 0)):
                     if self._config.print_per_token_pro:
                         print_pro = self._replicas[i].print_pro
-                    elif self._config.loss_function == "cross-entropy": # 正常的loss/n,n是sample数
+                    elif self._config.loss_function == "cross-entropy":  # 正常的loss/n,n是sample数
+
                         loss = self._replicas[i].loss
                     elif self._config.loss_function == \
                             "per-token-cross-entropy":
@@ -660,19 +670,21 @@ class _ModelUpdateGraph(object):
                         grad_vars = self._optimizer.compute_gradients(loss)
                         all_grad_vars.append(grad_vars)
                         weight = self._replica_weights[i]
-                        weighted_losses.append(loss*weight)
+                        weighted_losses.append(loss * weight)
 
         if self._config.print_per_token_pro == False:
             summed_loss = sum(weighted_losses)
 
             summed_grad_vars = self._sum_gradients(all_grad_vars,
-                                               self._replica_weights)
-            print("None gradients ", [v for g, v in summed_grad_vars if g is None])
-            self._accum_ops = [tf.assign_add(self._accumulated_loss, summed_loss)]
+                                                   self._replica_weights)
+            print("None gradients ", [
+                  v for g, v in summed_grad_vars if g is None])
+            self._accum_ops = [tf.assign_add(
+                self._accumulated_loss, summed_loss)]
 
             self._accum_ops += [tf.assign_add(self._accumulated_gradients[v.name],
-                                          g * self._scaling_factor)
-                            for g, v in summed_grad_vars if g is not None] #TODO delete "if g is not None"
+                                              g * self._scaling_factor)
+                                for g, v in summed_grad_vars if g is not None]  # TODO delete "if g is not None"
         else:
             self._accum_ops = print_pro
 
@@ -719,7 +731,7 @@ class _ModelUpdateGraph(object):
                 map_l2_loss = tf.constant(0.0, dtype=tf.float32)
                 map_l2_acc = []
                 for v in tf.trainable_variables():
-                    prior_name = 'prior/'+v.name.split(':')[0]
+                    prior_name = 'prior/' + v.name.split(':')[0]
                     prior_v = tf.get_variable(
                         prior_name, initializer=v.initialized_value(),
                         trainable=False, collections=['prior_variables'],

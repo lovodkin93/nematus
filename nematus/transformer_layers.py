@@ -6,6 +6,7 @@
 
 import numpy as np
 import tensorflow as tf
+from tensorflow.python.ops.ragged.ragged_util import repeat
 from tensorflow.python.ops.init_ops import glorot_uniform_initializer
 
 try:
@@ -66,12 +67,51 @@ def extract_sparse_less(sparse_tensor, value, dtype=None):
       sparse_tensor.dense_shape)
     return tensor
 
+def get_all_times(timesteps, times, dtype=tf.float32):
+    """
+    return a sparse tensor corresponding to each of the times concatenated (
+    :param timesteps:
+    :param times:
+    :param dtype:
+    :return:
+    """
+    orig_non_zeros = tf.shape(times.indices)[0]
+    # sparse_repeat_elements
+    indices = repeat(times.indices, timesteps, 0)
+
+    indices_type = tf.int64
+    indices *= tf.convert_to_tensor([[timesteps, 1, 1, 1]], dtype=indices_type)
+
+    cast_timesteps = tf.cast(timesteps, dtype=indices_type)
+    timesteps_mask = tf.expand_dims(tf.range(cast_timesteps, dtype=indices_type), 1)
+    zeros = tf.zeros([timesteps, 3], dtype=indices_type)
+    indices_addition = tf.tile(tf.concat([timesteps_mask, zeros], 1), [orig_non_zeros, 1])
+    indices += indices_addition
+
+    values = repeat(times.values, timesteps, 0)
+
+    shape = tf.concat([[times.dense_shape[0] * cast_timesteps], times.dense_shape[1:]], 0)
+
+    # Check where smaller than timestep
+    cond = tf.tile(tf.range(timesteps) + 1, [tf.size(times.values)])
+    cond = tf.less(values, cond)
+
+    # Remove when smaller
+    indices = tf.boolean_mask(indices, cond, axis=0)
+
+    values = tf.boolean_mask(values, cond, axis=0)
+    values = tf.cast(values, dtype=dtype)
+
+    tensor = tf.SparseTensor(indices, values, shape)
+    tensor = tf.sparse.reorder(tensor)
+    return tensor
+
 
 def get_tensor_from_times(time_steps, times, dtype=tf.float32):
     """
-    return a tensor corresponding to the times e.g. times=[0,1,2,3] on timestep=2 should result on [0,1,1,0]
+    return a sparse tensor corresponding to the times e.g. times=[0,1,2,3] on timestep=2 should result on [0,1,1,0]
     :param time_steps:
-    :param times: a tensor with numbers > 0 representing the first time step for which there is a value
+    :param times: a sparse tensor with numbers > 0 representing the first time step for which there is a value
     :return:
     """
     tensor = extract_sparse_less(times, time_steps, dtype=dtype)
@@ -87,7 +127,8 @@ def get_tensor_from_times(time_steps, times, dtype=tf.float32):
     # idxs = tf.math.logical_and(pos_idxs, time_idxs)
     # tensor = tf.SparseTensor(idx, tf.gather_nd(times, idx), times.get_shape(),
     #             dtype=dtype)
-    return tensor
+    # return tensor
+
 
 def get_target_edges_mask(time_steps, general_edge_mask):
     if general_edge_mask is None:
@@ -95,8 +136,6 @@ def get_target_edges_mask(time_steps, general_edge_mask):
     boolean_mask = tf.less(general_edge_mask, time_steps)
     mask = tf.cast(boolean_mask, tf.float32)
     return mask
-    # edge_mask = edge_mask_lengths[time_steps]
-    # raise NotImplementedError # TODO copy from the behaviour of get_right_context_mask
 
 
 def get_target_bias_mask(time_steps, general_bias_mask):
@@ -105,14 +144,10 @@ def get_target_bias_mask(time_steps, general_bias_mask):
     boolean_mask = tf.less(general_bias_mask, time_steps)
     mask = tf.cast(boolean_mask, tf.float32)
     return mask
-    # edge_mask = bias_mask_lengths[time_steps]
-    # raise NotImplementedError # TODO copy from the behaviour of get_right_context_mask
 
 
 def get_right_context_mask(time_steps):
     """ Generates the mask preventing the decoder from attending to unseen positions. """
-    # time_steps = tf.Print(time_steps, [time_steps, tf.shape(time_steps)], "time_steps", 40,
-    #                              1000)
     # Generate mask that limits decoder self-attention up to and including the current position
     attn_mask = tf.matrix_band_part(tf.ones([time_steps, time_steps]), -1, 0)
     # Expand mask to 4d. so as to be compatible with attention weights

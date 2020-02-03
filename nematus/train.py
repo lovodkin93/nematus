@@ -20,7 +20,7 @@ logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 import numpy as np
 import tensorflow as tf
-
+# gpu_options = tf.GPUOptions(allow_growth = True)
 try:
     from .beam_search_sampler import BeamSearchSampler
     from .config import read_config_from_cmdline, write_config_to_json_file
@@ -212,33 +212,33 @@ def train(config, sess):
     n_sents, n_words = 0, 0
     last_time = time.time()
     logging.info("Initial uidx={}".format(progress.uidx))
+    print("number of parameters:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
+    save_non_checkpoint(sess, saver, config.saveto)  # TODO deleteme
+    logging.info("saved")
     # set epoch = 1 if print per-token-probability
     if config.print_per_token_pro:
         config.max_epochs = progress.eidx + 1
     for progress.eidx in range(progress.eidx, config.max_epochs):
-        logging.info('Starting epoch {0}'.format(progress.eidx))
+        logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
         for source_sents, target_sents in text_iterator:
+            logging.info("Start batch {0}".format(progress.uidx))
             if len(source_sents[0][0]) != config.factors:
                 logging.error('Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
                     config.factors, len(source_sents[0][0])))
                 sys.exit(1)
             if config.target_graph:
-                # target_sents, target_edges, target_labels, target_edges_time, target_labels_time = list(zip(*target_sents))
                 target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
-                # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
-                target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
-                source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
+                # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
+                # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
+                # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
             else:
-                # target_edges = None
-                # target_labels = None
                 target_edges_time = None
                 target_labels_time = None
             logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
 
+            # print(target_labels_time, "target_labels_time shape")
             x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time = util.prepare_data(
                 source_sents, target_sents, target_edges_time, target_labels_time, config.factors, maxlen=None)
-            # x_in, x_mask_in, y_in, y_mask_in, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(
-            #     source_sents, target_sents, target_edges, target_labels, target_edges_time, target_labels_time, config.factors, maxlen=None)
 
             if x_in is None:
                 logging.info(
@@ -299,10 +299,6 @@ def train(config, sess):
                     logging.info('TARGET: {}'.format(target))
                     logging.info('SAMPLE: {}'.format(sample))
 
-            # # TODO delete
-            # if config.target_graph:
-            #     raise NotImplementedError  # TODO from here labels are not propagated anymore
-
             if config.beam_freq and progress.uidx % config.beam_freq == 0:
 
                 x_small = x_in[:, :, :10]
@@ -323,7 +319,7 @@ def train(config, sess):
                         msg = 'SAMPLE {}: {} Cost/Len/Avg {}/{}/{}'.format(
                             i, sample, cost, len(sample), cost / len(sample))
                         logging.info(msg)
-            logging.info("validation" + str(progress.uidx) + "," + str(config.valid_freq))
+            logging.info("validation " + str(progress.uidx) + "," + str(config.valid_freq))
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
                 if config.exponential_smoothing > 0.0:
                     sess.run(fetches=smoothing.swap_ops)
@@ -333,8 +329,10 @@ def train(config, sess):
                 else:
                     valid_ce = validate(sess, replicas[0], config,
                                         valid_text_iterator)
+                logging.info("ce done")
                 if (len(progress.history_errs) == 0 or
                             valid_ce < min(progress.history_errs)):
+                    logging.info("ce improved over history_errs")
                     progress.history_errs.append(valid_ce)
                     progress.bad_counter = 0
                     save_non_checkpoint(sess, saver, config.saveto)
@@ -349,14 +347,17 @@ def train(config, sess):
                         break
                 if config.valid_script is not None:
                     if config.exponential_smoothing > 0.0:
+                        logging.info("validating with smoothing")
                         sess.run(fetches=smoothing.swap_ops)
                         score = validate_with_script(sess, beam_search_sampler)
                         sess.run(fetches=smoothing.swap_ops)
                     else:
+                        logging.info("valisating without smoothing")
                         score = validate_with_script(sess, beam_search_sampler)
                     need_to_save = (score is not None and
                                     (len(progress.valid_script_scores) == 0 or
                                      score > max(progress.valid_script_scores)))
+                    logging.info("validation done, saving?" + str(need_to_save))
                     if score is None:
                         score = 0.0  # ensure a valid value is written
                     progress.valid_script_scores.append(score)
@@ -370,6 +371,7 @@ def train(config, sess):
                         progress.save_to_json(progress_path)
 
             if config.save_freq and progress.uidx % config.save_freq == 0:
+                logging.info("saving model")
                 saver.save(sess, save_path=config.saveto,
                            global_step=progress.uidx)
                 write_config_to_json_file(
@@ -391,8 +393,11 @@ def train(config, sess):
                     config.saveto, progress.uidx)
                 progress.save_to_json(progress_path)
                 break
+            logging.info("Loop done")
         if progress.estop:
+            logging.info("Stopping")
             break
+    logging.info("Finished training.")
 
 
 def save_non_checkpoint(session, saver, save_path):
@@ -474,6 +479,7 @@ def validate_with_script(session, beam_search_sampler):
     encoding = locale.getpreferredencoding()
     stdout = stdout_bytes.decode(encoding=encoding)
     stderr = stderr_bytes.decode(encoding=encoding)
+
     if len(stderr) > 0:
         logging.info("Validation script wrote the following to standard "
                      "error:\n" + stderr)
@@ -519,6 +525,8 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
         <EOS> symbol).
     """
     ce_vals, token_counts = [], []
+    logging.info("calc_cross_entropy_per_sentence")
+    text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
         if len(source_sents[0][0]) != config.factors:
             logging.error('Mismatch between number of factors in settings '
@@ -526,34 +534,28 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
                               config.factors, len(source_sents[0][0])))
             sys.exit(1)
         if config.target_graph:
-            # target_sents, target_edges, target_labels, target_edges_time, target_labels_time = list(zip(*target_sents))
             target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
-            # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
-            target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
-            source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
+            # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
+            # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
+            # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
+            logging.info("read sentence")
         else:
-            # target_edges = None
-            # target_labels = None
             target_edges_time = None
             target_labels_time = None
-        # x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time = util.prepare_data(source_sents, target_sents, target_edges, target_labels, target_edges_time, target_labels_time, config.factors,
-        #                                          maxlen=None)
         x, x_mask, y, y_mask, target_edges_time, target_labels_time = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time, config.factors,
                                                  maxlen=None)
-        # Run the minibatch through the model to get the sentence-level cross
-        # entropy values.
+
+        # Run the minibatch through the model to get the sentence-level cross entropy values.
         feeds = {model.inputs.x: x,
                  model.inputs.x_mask: x_mask,
                  model.inputs.y: y,
                  model.inputs.y_mask: y_mask,
                  model.inputs.training: False}
         if config.target_graph:
-            # feeds[model.inputs.target_edges] = target_edges
-            # feeds[model.inputs.target_labels] = target_labels
-            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time).eval(session=session)
-            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time).eval(session=session)
-            print("fed ce_labels", model.inputs.label_times.indices)
-            print("fed ce_edges", model.inputs.edge_times.indices)
+            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time, feeding=True)
+            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time, feeding=True)
+            # logging.info("fed ce_labels" + str(model.inputs.label_times.indices))
+            # logging.info("fed ce_edges" + str(model.inputs.edge_times.indices))
         batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
 
         # Optionally, do length normalization.
@@ -582,6 +584,9 @@ if __name__ == "__main__":
     # Create the TensorFlow session.
     tf_config = tf.ConfigProto()
     tf_config.allow_soft_placement = True
+
+    # tf_config.gpu_options.allow_growth = True #TODO delete
+
 
     # Train.
     with tf.Session(config=tf_config) as sess:

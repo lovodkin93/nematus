@@ -3,6 +3,7 @@ import logging
 
 import gzip
 
+from django.contrib.sitemaps.views import x_robots_tag
 from parsing.corpus import extract_text_from_combined_tokens
 from parsing.corpus import ConllSent
 from util import reset_dict_vals
@@ -77,7 +78,8 @@ class TextIterator:
                  remove_parse=False,
                  preprocess_script=None,
                  target_graph=False,
-                 target_labels_num=None):
+                 target_labels_num=None,
+                 splitted_action=False):
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
@@ -108,23 +110,37 @@ class TextIterator:
         self.target_labels_num = target_labels_num
         if self.target_graph:
             # TODO clean code when ready
-            self.target_actions = {key: val
-                                   for key, val in self.target_dict.items() if "@@|" in key}
-            self.target_actions = reset_dict_vals(self.target_actions)
-            #
-            # print("found actions:", self.target_actions)
-            self.target_labels = {key: val
-                                  for key, val in self.target_dict.items() if "|@@" in key}
-            self.target_labels = reset_dict_vals(self.target_labels)
-            # print("found labels:", self.target_labels)
-            # self.target_dict = {key: val for key, val in self.target_dict.items() if not (
-            #     key in self.target_actions or key in self.target_labels)} # TODO is it the right thing to delete it from the target dict?
-            # # self.target_dict = reset_dict_vals(self.target_dict)
+            edge_end = "@@|"
+            label_start = "|@@"
+            self.splitted_action = splitted_action
+            if self.splitted_action:
+                self.target_actions = {key: val
+                                       for key, val in self.target_dict.items() if edge_end in key}
+                self.target_actions = reset_dict_vals(self.target_actions)
+
+                self.target_labels = {key: val
+                                      for key, val in self.target_dict.items() if label_start in key}
+                self.target_labels = reset_dict_vals(self.target_labels)
+            else:
+                self.target_actions = {key: val
+                                       for key, val in self.target_dict.items() if edge_end in key}
+                actions = {key[0]: val
+                           for key, val in self.target_actions.items()}
+                actions = reset_dict_vals(actions)
+                self.target_actions = {key: actions[key[0]]
+                                       for key in self.target_actions}
+
+                labels = {key[1:-len(edge_end)]: i
+                          for i, key in enumerate(self.target_actions)}
+                labels = reset_dict_vals(labels)
+                self.target_labels = {key: labels[key[1:-len(edge_end)]]
+                                       for key in self.target_actions}
         else:
             self.target_labels = None
             self.target_actions = None
         # Determine the UNK value for each dictionary (the value depends on
         # which version of build_dictionary.py was used).
+
 
         def determine_unk_val(d):
             if '<UNK>' in d and d['<UNK>'] == 2:
@@ -172,6 +188,9 @@ class TextIterator:
 
     def __iter__(self):
         return self
+
+    def set_remove_parse(self, bool):
+        self.remove_parse = bool
 
     def reset(self):
         if self.preprocess_script:
@@ -279,23 +298,20 @@ class TextIterator:
                 # read from source file and map to word index
                 tt = self.target_buffer.pop()
 
-                if self.target_graph:
-                    tt_edge_time, tt_label_time = convert_text_to_graph(
-                        tt, self.maxlen, self.target_labels, self.target_labels_num)
+                tt_indices = [lookup_token(w, self.target_dict,
+                                           self.target_unk_val) for w in tt]
+                if self.target_vocab_size != None:
+                    tt_indices = [w if w < self.target_vocab_size
+                                  else self.target_unk_val
+                                  for w in tt_indices]
 
-                    tt_text = tt
-                    # tt_text = extract_text_from_combined_tokens(tt) # to use that convert_text_to_graph should rely on token_num
-                    tt_indices = [lookup_token(w, self.target_dict,
-                                               self.target_unk_val) for w in tt_text]
+                if self.target_graph:
+                    # print("read", tt)
+                    tt_edge_time, tt_label_time = convert_text_to_graph(
+                        ["<GO>"] + tt, self.maxlen + 1, self.target_labels, self.target_labels_num, split=self.splitted_action)
                     target.append((tt_indices, tt_edge_time, tt_label_time))
 
                 else:
-                    tt_indices = [lookup_token(w, self.target_dict,
-                                               self.target_unk_val) for w in tt]
-                    if self.target_vocab_size != None:
-                        tt_indices = [w if w < self.target_vocab_size
-                                      else self.target_unk_val
-                                      for w in tt_indices]
                     target.append(tt_indices)
 
                 longest_source = max(longest_source, len(ss_indices))
@@ -337,7 +353,8 @@ def _last_word(idxs, tokens,
     return idxs[i:], tokens[i:]
 
 
-def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, graceful=False):
+def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=False, graceful=False):
+    #TODO document
     # TODO connect reduce and labels to the popped out
     # TODO convert to work with indexes
     slf = 0
@@ -362,26 +379,34 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, graceful=F
     root = False
     edge_end = "@@|"
     label_start = "|@@"
+    # if ("L@@|" not in x_target):
+    #     raise
     for token_id, token in enumerate(x_target):
         # last = tokens_stack
 
         if token.endswith(edge_end):
             assert graceful or not label
             label = True
-            if token == ConllSent.REDUCE_L + edge_end:
-                min_leng_cond = len(idxs_stack) > 1
-                if graceful and min_leng_cond:
+            if token.startswith(ConllSent.REDUCE_L):
+                min_len_cond = len(idxs_stack) > 1
+                if graceful and not min_len_cond:
+                    heads_ids = []
                     continue
-                assert min_leng_cond, "tried to create a left edge with 1 word or less in the buffer" + str(idxs_stack)
-                heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack)
+                assert min_len_cond, "tried to create a left edge with 1 word or less in the buffer " + x_target
+                heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
                 idxs_stack, tokens_stack = idxs_stack[:-len(heads_ids)], tokens_stack[:-len(heads_ids)]
-                dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
+                dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
                 idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
                 idxs_stack += heads_ids
                 tokens_stack += head_tokens
-            elif token == ConllSent.REDUCE_R + edge_end:
-                root = "root" in x_target[token_id + 1] or graceful
-                dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack)
+            elif token.startswith(ConllSent.REDUCE_R):
+                if split:
+                    label_token = x_target[token_id + 1]
+                else:
+                    label_token = token
+                    assert label_token == x_target[token_id], (label_token, token_id, x_target)
+                root = graceful or "root" in label_token # Root expects only one word to exist
+                dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
                 idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
                 heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=root)
             else:
@@ -390,29 +415,38 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, graceful=F
             # add edge
             for head in heads_ids:
                 for dependent in dependent_ids:
-                    edge_times[head, dependent, lft] = token_id + 1
-                    edge_times[dependent, head, right] = token_id + 1
+                    edge_times[head, dependent, lft] = token_id
+                    edge_times[dependent, head, right] = token_id
 
             # add a label to and from edge tokens
             for head in heads_ids:
-                edge_times[token_id, head, lft_edge] = token_id + 1
-            for dependent in heads_ids:
-                edge_times[token_id, dependent, right_edge] = token_id + 1
+                edge_times[token_id, head, lft_edge] = token_id
+            for dependent in dependent_ids:
+                edge_times[token_id, dependent, right_edge] = token_id
+
+            if split:
+                assert token.endswith(edge_end)
+            else:
+                for head in heads_ids:
+                    for dependent in dependent_ids:
+                        label_times[head, dependent, labels_dict[token]] = token_id
+                label = False
 
         elif token.startswith(label_start):
+            assert not split
             assert graceful or label
             assert graceful or "root" not in token or root
             if label:
                 label = False
                 for head in heads_ids:
                     for dependent in dependent_ids:
-                        label_times[head, dependent, labels_dict[token]] = token_id + 1
+                        label_times[head, dependent, labels_dict[token]] = token_id
 
                 # add a label to and from edges
                 for head in heads_ids:
-                    edge_times[token_id, head, lft_edge] = token_id + 1
-                for dependent in heads_ids:
-                    edge_times[token_id, dependent, right_edge] = token_id + 1
+                    edge_times[token_id, head, lft_edge] = token_id
+                for dependent in dependent_ids:
+                    edge_times[token_id, dependent, right_edge] = token_id
 
         else:
             assert graceful or not label
@@ -420,4 +454,9 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, graceful=F
             idxs_stack.append(token_id)
             tokens_stack.append(token)
             token_num += 1  # number of tokens that are not transitions (actual subwords)
-    return np.array(edge_times), np.array(label_times)
+    # print("edge array", np.array(edge_times, dtype=np.float32))
+    # print("x_target for graph convert", x_target, np.array(x_target).shape)
+
+    edge_times = np.array(edge_times, dtype=np.float32)
+    label_times = np.array(label_times, dtype=np.float32)
+    return edge_times, label_times

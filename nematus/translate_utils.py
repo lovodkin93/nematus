@@ -8,10 +8,11 @@ import tensorflow as tf
 try:
     from . import exception
     from . import util
+    from .parsing.corpus import extract_text_from_combined_tokens
 except (ModuleNotFoundError, ImportError) as e:
     import exception
     import util
-
+    from parsing.corpus import extract_text_from_combined_tokens
 
 def translate_batch(session, sampler, x, x_mask, max_translation_len,
                     normalization_alpha):
@@ -114,6 +115,11 @@ def translate_file(input_file, output_file, session, sampler, config,
         beams = []
         for x in minibatches:
             y_dummy = numpy.zeros(shape=(len(x),1))
+            if config.target_graph:
+                # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
+                logging.info("translating" + str(x))
+                logging.info("translating type" + str(type(x)))
+                # x = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in x.tolist()]
             x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, config.factors,
                                                 maxlen=None)
             sample = translate_batch(session, sampler, x, x_mask,
@@ -132,6 +138,8 @@ def translate_file(input_file, output_file, session, sampler, config,
                 num = num_prev_translated + i
                 for sent, cost in beam:
                     translation = util.seq2words(sent, num_to_target)
+                    if config.valid_remove_parse:
+                        translation = extract_text_from_combined_tokens(translation)
                     line = "{} ||| {} ||| {}\n".format(num, translation,
                                                        str(cost))
                     output_file.write(line)

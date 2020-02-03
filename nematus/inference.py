@@ -23,7 +23,10 @@ TODO Beam search for Transformer ensembles.
 TODO Mixed RNN/Tranformer inference.
 TODO Ensemble sampling (is this useful?).
 """
+
+
 class InferenceModelSet(object):
+
     def __init__(self, models, configs):
         self._models = models
         self._model_types = [config.model_type for config in configs]
@@ -118,6 +121,7 @@ class InferenceModelSet(object):
         else:
             assert False
 
+
 def translate_file(input_file, output_file, session, models, configs,
                    beam_size=12, nbest=False, minibatch_size=80,
                    maxibatch_size=20, normalization_alpha=1.0):
@@ -159,9 +163,9 @@ def translate_file(input_file, output_file, session, models, configs,
         # translations and scores) for each sentence.
         beams = []
         for x in minibatches:
-            y_dummy = numpy.zeros(shape=(len(x),1))
-            x, x_mask, _, _ = util.prepare_data(x, y_dummy, configs[0].factors,
-                                                maxlen=None)
+            y_dummy = numpy.zeros(shape=(len(x), 1))
+            x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, configs[0].factors,
+                                                      maxlen=None)
             sample = model_set.decode(
                 session=session,
                 x=x,
@@ -217,4 +221,4 @@ def translate_file(input_file, output_file, session, models, configs,
 
     duration = time.time() - start_time
     logging.info('Translated {} sents in {} sec. Speed {} sents/sec'.format(
-        num_translated, duration, num_translated/duration))
+        num_translated, duration, num_translated / duration))
