@@ -1,3 +1,4 @@
+import sys
 import numpy
 import logging
 
@@ -9,6 +10,10 @@ from parsing.corpus import ConllSent
 from util import reset_dict_vals
 import numpy as np
 import subprocess
+
+# ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+if sys.version_info < (3, 6):
+    ModuleNotFoundError = SystemError
 
 try:
     from .util import load_dict

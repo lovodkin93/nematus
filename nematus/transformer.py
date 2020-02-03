@@ -1,11 +1,16 @@
 """Adapted from Nematode: https://github.com/demelin/nematode """
 
+import sys
 import tensorflow as tf
 import numpy
 from docutils.nodes import target
 
 from sparse_sgcn import gcn, GCN
 from sgcn import gcn as gcn_dense
+
+# ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+if sys.version_info < (3, 6):
+    ModuleNotFoundError = SystemError
 
 try:
     from . import model_inputs
@@ -81,19 +86,19 @@ class Transformer(object):
         self.index = self.inputs.index
 
         # Build the common parts of the graph.
-        with tf.name_scope('{:s}_loss'.format(self.name)):
+        with tf.compat.v1.name_scope('{:s}_loss'.format(self.name)):
             # (Re-)generate the computational graph
             self.dec_vocab_size = self._build_graph()
 
         # Build the training-specific parts of the graph.
 
-        with tf.name_scope('{:s}_loss'.format(self.name)):
+        with tf.compat.v1.name_scope('{:s}_loss'.format(self.name)):
             # Encode source sequences
-            with tf.name_scope('{:s}_encode'.format(self.name)):
+            with tf.compat.v1.name_scope('{:s}_encode'.format(self.name)):
                 enc_output, cross_attn_mask = self.enc.encode(
                     self.source_ids, self.source_mask)
             # Decode into target sequences
-            with tf.name_scope('{:s}_decode'.format(self.name)):
+            with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
                 logits = self.dec.decode_at_train(self.target_ids_in,
                                                   enc_output,
                                                   cross_attn_mask, self.edge_times, self.label_times)
@@ -122,9 +127,9 @@ class Transformer(object):
                 # e**(-(-log(probability))) =  probability
                 self._print_pro = tf.math.exp(-masked_loss)
 
-            sent_lens = tf.reduce_sum(self.target_mask, axis=1, keepdims=False)
+            sent_lens = tf.reduce_sum(input_tensor=self.target_mask, axis=1, keepdims=False)
             self._loss_per_sentence = sentence_loss * sent_lens
-            self._loss = tf.reduce_mean(self._loss_per_sentence, keepdims=False)
+            self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
 
             # calculate expected risk
             if self.config.loss_function == 'MRT':
@@ -137,7 +142,7 @@ class Transformer(object):
 
     def _build_graph(self):
         """ Defines the model graph. """
-        with tf.variable_scope('{:s}_model'.format(self.name)):
+        with tf.compat.v1.variable_scope('{:s}_model'.format(self.name)):
             # Instantiate embedding layer(s)
             if not self.config.tie_encoder_decoder_embeddings:
                 enc_vocab_size = self.source_vocab_size
@@ -206,10 +211,10 @@ class Transformer(object):
     def _convert_inputs(self, inputs):
         # Convert from time-major to batch-major. Note that we take factor 0
         # from x and ignore any other factors.
-        source_ids = tf.transpose(inputs.x[0], perm=[1, 0])
-        source_mask = tf.transpose(inputs.x_mask, perm=[1, 0])
-        target_ids_out = tf.transpose(inputs.y, perm=[1, 0])
-        target_mask = tf.transpose(inputs.y_mask, perm=[1, 0])
+        source_ids = tf.transpose(a=inputs.x[0], perm=[1, 0])
+        source_mask = tf.transpose(a=inputs.x_mask, perm=[1, 0])
+        target_ids_out = tf.transpose(a=inputs.y, perm=[1, 0])
+        target_mask = tf.transpose(a=inputs.y_mask, perm=[1, 0])
 
         if self.config.target_graph:
             edge_times = inputs.edge_times
@@ -222,12 +227,11 @@ class Transformer(object):
 
         # target_ids_in is a bit more complicated since we need to insert
         # the special <GO> symbol (with value 1) at the start of each sentence
-        max_len, batch_size = tf.shape(inputs.y)[0], tf.shape(inputs.y)[1]
+        max_len, batch_size = tf.shape(input=inputs.y)[0], tf.shape(input=inputs.y)[1]
         go_symbols = tf.fill(value=1, dims=[1, batch_size])
         tmp = tf.concat([go_symbols, inputs.y], 0)
         tmp = tmp[:-1, :]
-        target_ids_in = tf.transpose(tmp, perm=[1, 0])
-
+        target_ids_in = tf.transpose(a=tmp, perm=[1,0])
         return (source_ids, source_mask, target_ids_in, target_ids_out,
                 target_mask, edge_times, label_times)
         # return (source_ids, source_mask, target_ids_in, target_ids_out,
@@ -263,16 +267,15 @@ class TransformerEncoder(object):
     def _build_graph(self):
         """ Defines the model graph. """
         # Initialize layers
-        with tf.variable_scope(self.name):
+        with tf.compat.v1.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_enc_depth + 1):
                 layer_name = 'layer_{:d}'.format(layer_id)
                 # Check if constructed layer is final
                 if layer_id == self.config.transformer_enc_depth:
                     self.is_final_layer = True
                 # Specify ffn dimensions sequence
-                ffn_dims = [self.config.transformer_ffn_hidden_size,
-                            self.config.state_size]
-                with tf.variable_scope(layer_name):
+                ffn_dims = [self.config.transformer_ffn_hidden_size, self.config.state_size]
+                with tf.compat.v1.variable_scope(layer_name):
                     # Build layer blocks (see layers.py)
                     self_attn_block = AttentionBlock(self.config,
                                                      FLOAT_DTYPE,
@@ -314,11 +317,11 @@ class TransformerEncoder(object):
             source_embeddings += positional_signal
             # Apply dropout
             if self.config.transformer_dropout_embeddings > 0:
-                source_embeddings = tf.layers.dropout(source_embeddings,
+                source_embeddings = tf.compat.v1.layers.dropout(source_embeddings,
                                                       rate=self.config.transformer_dropout_embeddings, training=self.training)
             return source_embeddings, self_attn_mask, cross_attn_mask
 
-        with tf.variable_scope(self.name):
+        with tf.compat.v1.variable_scope(self.name):
             # Prepare inputs to the encoder, get attention masks
             enc_inputs, self_attn_mask, cross_attn_mask = _prepare_source()
             # Propagate inputs through the encoder stack
@@ -387,16 +390,15 @@ class TransformerDecoder(object):
                 self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1, bias_labels_num=self.labels_num, edge_labels_num=3,
                     activation=tf.nn.relu, use_bias=True, gate=True) #TODO use bias, use gate
         # Initialize layers
-        with tf.variable_scope(self.name):
+        with tf.compat.v1.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
                 layer_name = 'layer_{:d}'.format(layer_id)
                 # Check if constructed layer is final
                 if layer_id == self.config.transformer_dec_depth:
                     self.is_final_layer = True
                 # Specify ffn dimensions sequence
-                ffn_dims = [self.config.transformer_ffn_hidden_size,
-                            self.config.state_size]
-                with tf.variable_scope(layer_name):
+                ffn_dims = [self.config.transformer_ffn_hidden_size, self.config.state_size]
+                with tf.compat.v1.variable_scope(layer_name):
                     # Build layer blocks (see layers.py)
                     self_attn_block = AttentionBlock(self.config,
                                                      FLOAT_DTYPE,
@@ -493,7 +495,7 @@ class TransformerDecoder(object):
             target_embeddings += padded_positional_signal
 
             if self.config.transformer_dropout_embeddings > 0:
-                target_embeddings = tf.layers.dropout(target_embeddings,
+                target_embeddings = tf.compat.v1.layers.dropout(target_embeddings,
                                                       rate=self.config.transformer_dropout_embeddings, training=self.training)
             return target_embeddings
 
@@ -514,12 +516,11 @@ class TransformerDecoder(object):
                 full_logits = self.softmax_projection_layer.project(dec_output)
             return full_logits
 
-
-        with tf.variable_scope(self.name):
+        with tf.compat.v1.variable_scope(self.name):
             # Transpose encoder information in hybrid models
             if self.from_rnn:
-                enc_output = tf.transpose(enc_output, [1, 0, 2])
-                cross_attn_mask = tf.transpose(cross_attn_mask, [3, 1, 2, 0])
+                enc_output = tf.transpose(a=enc_output, perm=[1, 0, 2])
+                cross_attn_mask = tf.transpose(a=cross_attn_mask, perm=[3, 1, 2, 0])
 
             target_shape = tf.shape(target_ids)
             batch_size = target_shape[0]
@@ -529,7 +530,7 @@ class TransformerDecoder(object):
                 tf.Print([], [timesteps], "timestep changes?", 300, 50))
             printops.append(tf.Print([], [target_shape], "target shape", 300, 50))
             printops.append(tf.Print([], [self.config.maxlen], "maxlen", 300, 50))
-            printops.append(tf.Print([], [tf.shape(target_ids), target_ids], "target_ids are they like decoded x (if not should decoded x lose the beginning 1=<GO>?)", 300, 50))
+            printops.append(tf.Print([], [tf.shape(input=target_ids), target_ids], "target_ids are they like decoded x (if not should decoded x lose the beginning 1=<GO>?)", 300, 50))
             with tf.control_dependencies(printops):
                 self_attn_mask = get_right_context_mask(timesteps)
             positional_signal = get_positional_signal(timesteps,

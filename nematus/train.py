@@ -20,7 +20,11 @@ logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 import numpy as np
 import tensorflow as tf
-# gpu_options = tf.GPUOptions(allow_growth = True)
+
+# ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+if sys.version_info < (3, 6):
+    ModuleNotFoundError = SystemError
+
 try:
     from .beam_search_sampler import BeamSearchSampler
     from .config import read_config_from_cmdline, write_config_to_json_file
@@ -107,8 +111,8 @@ def load_data(config):
 
 
 def train(config, sess):
-    assert (config.prior_model != None and (tf.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c == 0.0)), \
-        "MAP training requires a prior model file: Use command-line option --prior_model"
+    assert (config.prior_model != None and (tf.compat.v1.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c==0.0)), \
+    "MAP training requires a prior model file: Use command-line option --prior_model"
 
     # Construct the graph, with one model replica per GPU
 
@@ -134,16 +138,15 @@ def train(config, sess):
         device_type = "GPU" if num_gpus > 0 else "CPU"
         device_spec = tf.DeviceSpec(device_type=device_type, device_index=i)
         with tf.device(device_spec):
-            with tf.variable_scope(tf.get_variable_scope(), reuse=(i > 0)):
+            with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i>0)):
                 if config.model_type == "transformer":
                     model = TransformerModel(config)
                 else:
                     model = rnn_model.RNNModel(config)
                 replicas.append(model)
 
-    init = tf.zeros_initializer(dtype=tf.int32)
-    global_step = tf.get_variable(
-        'time', [], initializer=init, trainable=False)
+    init = tf.zeros_initializer()
+    global_step = tf.compat.v1.get_variable('time', [], initializer=init, trainable=False)
 
     if config.learning_schedule == "constant":
         schedule = learning_schedule.ConstantSchedule(config.learning_rate)
@@ -164,7 +167,7 @@ def train(config, sess):
         sys.exit(1)
 
     if config.optimizer == 'adam':
-        optimizer = tf.train.AdamOptimizer(learning_rate=schedule.learning_rate,
+        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=schedule.learning_rate,
                                            beta1=config.adam_beta1,
                                            beta2=config.adam_beta2,
                                            epsilon=config.adam_epsilon)
@@ -176,7 +179,7 @@ def train(config, sess):
     if config.summary_freq:
         summary_dir = (config.summary_dir if config.summary_dir is not None
                        else os.path.abspath(os.path.dirname(config.saveto)))
-        writer = tf.summary.FileWriter(summary_dir, sess.graph)
+        writer = tf.compat.v1.summary.FileWriter(summary_dir, sess.graph)
     else:
         writer = None
 
@@ -189,7 +192,7 @@ def train(config, sess):
     saver, progress = model_loader.init_or_restore_variables(
         config, sess, train=True)
 
-    global_step.load(progress.uidx, sess)
+    global_step.assign(progress.uidx, sess)
 
     if config.sample_freq:
         random_sampler = RandomSampler(
@@ -579,15 +582,15 @@ if __name__ == "__main__":
     logging.info(config)
 
     # TensorFlow 2.0 feature needed by ExponentialSmoothing.
-    tf.enable_resource_variables()
+    tf.compat.v1.enable_resource_variables()
 
     # Create the TensorFlow session.
-    tf_config = tf.ConfigProto()
+    tf_config = tf.compat.v1.ConfigProto()
     tf_config.allow_soft_placement = True
 
     # tf_config.gpu_options.allow_growth = True #TODO delete
 
 
     # Train.
-    with tf.Session(config=tf_config) as sess:
+    with tf.compat.v1.Session(config=tf_config) as sess:
         train(config, sess)

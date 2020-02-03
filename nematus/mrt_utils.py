@@ -1,10 +1,15 @@
 # Untilities for Minimum Risk Training
 
+import sys
 import itertools
 import math
 
 import tensorflow as tf
 import numpy as np
+
+# ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+if sys.version_info < (3, 6):
+    ModuleNotFoundError = SystemError
 
 try:
     from .metrics.scorer_provider import ScorerProvider
@@ -228,8 +233,8 @@ def mrt_cost(cost, score, index, config):
     """
 
     samplesN = config.samplesN
-    total_sample = tf.shape(cost)[0]
-    batch_size = tf.shape(index)[0] - tf.constant(1)
+    total_sample = tf.shape(input=cost)[0]
+    batch_size = tf.shape(input=index)[0] - tf.constant(1)
 
     # cancelling the negative of the cost (P**alpha = e**(-alpha*(-logP))
     alpha = tf.constant([-config.mrt_alpha], dtype=tf.float32)
@@ -255,7 +260,7 @@ def mrt_cost(cost, score, index, config):
 
         return tf.add(i, 1), cost
     # do the loop:
-    i, cost = tf.while_loop(while_condition, body, [i, cost])
+    i, cost = tf.while_loop(cond=while_condition, body=body, loop_vars=[i, cost])
 
     # compute risk by dot product normalised cost and score
     cost = tf.reshape(cost, [1, total_sample])

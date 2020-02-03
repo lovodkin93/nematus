@@ -3,6 +3,7 @@
 Rescoring an n-best list of translations using a translation model.
 '''
 
+import sys
 import logging
 if __name__ == '__main__':
     # Parse console arguments.
@@ -14,6 +15,10 @@ if __name__ == '__main__':
     logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
 
 from tempfile import NamedTemporaryFile
+
+# ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+if sys.version_info < (3, 6):
+    ModuleNotFoundError = SystemError
 
 try:
     from .config import load_config_from_json_file
