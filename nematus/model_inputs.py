@@ -8,12 +8,7 @@ class ModelInputs(object):
         # if config.target_graph:
         #     seq_len = config.maxlen
         # mrt_sampleN = batch_size X sampleN
-<<<<<<< HEAD
-        self.x = tf.placeholder(
-=======
-
         self.x = tf.compat.v1.placeholder(
->>>>>>> 14e415914cba30428d8fa1635b2482cad6b0596d
             name='x',
             shape=(config.factors, seq_len, batch_size),
             dtype=tf.int32)
