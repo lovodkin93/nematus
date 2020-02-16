@@ -72,7 +72,8 @@ def extract_sparse_less(sparse_tensor, value, dtype=None):
       sparse_tensor.dense_shape)
     return tensor
 
-def get_all_times(timesteps, times, dtype=tf.float32):
+
+def get_all_times(timesteps, times, dtype=tf.float32, keep_original_values=False):
     """
     return a sparse tensor corresponding to each of the times concatenated (
     :param timesteps:
@@ -81,19 +82,33 @@ def get_all_times(timesteps, times, dtype=tf.float32):
     :return:
     """
     orig_non_zeros = tf.shape(times.indices)[0]
-    # sparse_repeat_elements
-    indices = repeat(times.indices, timesteps, 0)
+
 
     indices_type = tf.int64
-    indices *= tf.convert_to_tensor([[timesteps, 1, 1, 1]], dtype=indices_type)
+    indices = times.indices * tf.convert_to_tensor([[timesteps, 1, 1, 1]], dtype=indices_type)
+    printops = []
+    printops.append(
+        tf.compat.v1.Print([], [indices, times.indices], "times_indices multiplied", 10, 300))
+    printops.append(
+        tf.compat.v1.Print([], [
+            tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(times).indices, times.indices], [tf.dtypes.bool],
+                                 False)], "times_indices kept?", 10, 300))
+    with tf.control_dependencies(printops):
+        indices = repeat(indices, timesteps, 0)
 
+    # for each index replicate it (in order) [#inbatch,...] make [sent_len*#inbatch+0,...] ... [sent_len*#inbatch+sent_len - 1,...]
     cast_timesteps = tf.cast(timesteps, dtype=indices_type)
     timesteps_mask = tf.expand_dims(tf.range(cast_timesteps, dtype=indices_type), 1)
     zeros = tf.zeros([timesteps, 3], dtype=indices_type)
     indices_addition = tf.tile(tf.concat([timesteps_mask, zeros], 1), [orig_non_zeros, 1])
     indices += indices_addition
 
-    values = repeat(times.values, timesteps, 0)
+
+    printops = []
+    printops.append(
+        tf.compat.v1.Print([], [indices], "times_indices added", 10, 300))
+    with tf.control_dependencies(printops):
+        values = repeat(times.values, timesteps, 0)
 
     shape = tf.concat([[times.dense_shape[0] * cast_timesteps], times.dense_shape[1:]], 0)
 
@@ -105,12 +120,28 @@ def get_all_times(timesteps, times, dtype=tf.float32):
     indices = tf.boolean_mask(indices, cond, axis=0)
 
     values = tf.boolean_mask(values, cond, axis=0)
-    values = tf.cast(values, dtype=dtype)
+    if keep_original_values:
+        values = tf.cast(values, dtype=dtype)
+    else:
+        values = tf.ones_like(values, dtype=dtype)
 
     tensor = tf.SparseTensor(indices, values, shape)
-    tensor = tf.sparse.reorder(tensor)
+
+    printops = []
+    printops.append(
+        tf.compat.v1.Print([], [tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(tensor).indices, tensor.indices], [tf.dtypes.bool], False)], "gate_indices kept?", 10, 300))
+    with tf.control_dependencies(printops):
+        tensor = tf.sparse.reorder(tensor)
     return tensor
 
+def assert_ordered(indices, indices2): # TODO delete
+    for ind, ind2 in zip(indices, indices2):
+        if np.any(ind != ind2):
+            print("unordered:", ind, ind2)
+            print(list(indices)[:30])
+            print(list(indices2)[:30])
+            return False
+    return True
 
 def get_tensor_from_times(time_steps, times, dtype=tf.float32):
     """
@@ -288,8 +319,6 @@ class ProcessingLayer(object):
                 outputs = tf.compat.v1.layers.dropout(inputs, rate=self.dropout_rate, training=self.training)
             # Apply residual connections
             if residual_inputs is not None:
-                # printop = tf.Print([], [tf.shape(outputs), tf.shape(residual_inputs), outputs, residual_inputs], "residual before and after", 5, 6)
-                # with tf.control_dependencies([printop]):  #TODO delte when not debugging
                 outputs = outputs + residual_inputs
             # Apply layer normalization
             if self.use_layer_norm:

@@ -99,38 +99,38 @@ class ModelAdapter:
                 # print("memory print", memories)
                 # TODO no memories in target_graph inference. and need to word
                 # by word translate in train (perhaps with the same func?)
-                printops = []
-                printops.append(
-                    tf.Print([], [tf.shape(x), x], "decoded x_", 10, 50))
-                printops.append(
-                    tf.Print([], [current_time_step], "decoded current_time_step", 10, 50))
-                printops.append(
-                    tf.Print([], [tf.shape(step_target_ids), step_target_ids], "step_target_ids", 10, 50))
-                printops.append(tf.Print([], [memories["layer_1"]["keys"], memories[
-                                "layer_1"]["values"]], "memories", 10, 50))
-                with tf.control_dependencies(printops):
-                    if self.config.target_graph:
-                        max_size = self.config.maxlen + 1
-                        x = tf.pad(x, [[0, 0], [0, max_size - tf.shape(x)[1]]])
-                        target_embeddings = decoder._embed(x)
-                        signal_slice = positional_signal[
-                            :, :current_time_step, :]
-                        emb_shape = tf.shape(target_embeddings)
-                        signal_slice = tf.pad(
-                            signal_slice, [[0, 0], [0, emb_shape[1] - current_time_step], [0, 0]])
-                    else:
-                        target_embeddings = decoder._embed(step_target_ids)
-                        signal_slice = positional_signal[
-                            :, current_time_step - 1:current_time_step, :]
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(x), x], "decoded x_", 10, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [current_time_step], "decoded current_time_step", 10, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(step_target_ids), step_target_ids], "step_target_ids", 10, 50))
+                # printops.append(tf.compat.v1.Print([], [memories["layer_1"]["keys"], memories[
+                #                 "layer_1"]["values"]], "memories", 10, 50))
+                # with tf.control_dependencies(printops):
+                if self.config.target_graph:
+                    max_size = self.config.maxlen + 1
+                    x = tf.pad(x, [[0, 0], [0, max_size - tf.shape(x)[1]]])
+                    target_embeddings = decoder._embed(x)
+                    signal_slice = positional_signal[
+                        :, :current_time_step, :]
+                    emb_shape = tf.shape(target_embeddings)
+                    signal_slice = tf.pad(
+                        signal_slice, [[0, 0], [0, emb_shape[1] - current_time_step], [0, 0]])
+                else:
+                    target_embeddings = decoder._embed(step_target_ids)
+                    signal_slice = positional_signal[
+                        :, current_time_step - 1:current_time_step, :]
 
                 # Add positional signal.
-                printops = []
-                printops.append(
-                    tf.Print([], [tf.shape(signal_slice), signal_slice], "signal_slice", 10, 50))
-                printops.append(tf.Print([], [tf.shape(
-                    target_embeddings), target_embeddings], "target_embeddings", 10, 50))
-                with tf.control_dependencies(printops):
-                    target_embeddings += signal_slice
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(signal_slice), signal_slice], "signal_slice", 10, 50))
+                # printops.append(tf.compat.v1.Print([], [tf.shape(
+                #     target_embeddings), target_embeddings], "target_embeddings", 10, 50))
+                # with tf.control_dependencies(printops):
+                target_embeddings += signal_slice
                 # Optionally, apply dropout to embeddings.
                 if self.config.transformer_dropout_embeddings > 0:
                     target_embeddings = tf.compat.v1.layers.dropout(
@@ -155,23 +155,23 @@ class ModelAdapter:
                         #     labels, [None, max_size, max_size, self.config.target_labels_num])
                         edges = util.dense_to_sparse_tensor(edges)
                         labels = util.dense_to_sparse_tensor(labels)
-                        printops = []
-                        printops.append(tf.Print([], [tf.shape(edges), edges.indices, tf.ones_like(
-                            edges.values)], "pythoned edges", 10, 50))
-                        printops.append(tf.Print([], [tf.shape(labels), labels.indices, tf.ones_like(
-                            labels.values)], "pythoned labels", 10, 50))
-                        printops.append(tf.Print([], [tf.shape(layer_output), layer_output], "last layer output" + str(
-                            layer_id - 1) + " (is padded tp btch,120,emb?", 10, 50))
-                        with tf.control_dependencies(printops):
-                            inputs = [layer_output, edges, labels]
-                            layer_output = self.model.dec.gcn_stack[
-                                layer_id].apply(inputs)
-                            layer_output += inputs[0]  # residual connection
+                        # printops = []
+                        # printops.append(tf.compat.v1.Print([], [tf.shape(edges), edges.indices, tf.ones_like(
+                        #     edges.values)], "pythoned edges", 10, 50))
+                        # printops.append(tf.compat.v1.Print([], [tf.shape(labels), labels.indices, tf.ones_like(
+                        #     labels.values)], "pythoned labels", 10, 50))
+                        # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "last layer output" + str(
+                        #     layer_id - 1) + " (is padded tp btch,120,emb?", 10, 50))
+                        # with tf.control_dependencies(printops):
+                        inputs = [layer_output, edges, labels]
+                        layer_output = self.model.dec.gcn_stack[
+                            layer_id].apply(inputs)
+                        layer_output += inputs[0]  # residual connection
                     # slice tensor to save space
-                    printops = []
-                    printops.append(tf.Print([], [tf.shape(layer_output), layer_output], "slicing gcn output", 10, 50))
-                    with tf.control_dependencies(printops):
-                        layer_output = layer_output[:, :current_time_step, :]
+                    # printops = []
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "slicing gcn output", 10, 50))
+                    # with tf.control_dependencies(printops):
+                    layer_output = layer_output[:, :current_time_step, :]
                     # Propagate values through the decoder stack.
                 # NOTE: No self-attention mask is applied at decoding, as
                 #       future information is unavailable.
@@ -183,29 +183,29 @@ class ModelAdapter:
                     else:
                         layer_memories = None
                     self_attn_mask = None
-                    printops = []
-                    printops.append(tf.Print([], [tf.shape(layer_output), layer_output], "infer self_attending"+ str(layer_id), 10, 50))
-                    with tf.control_dependencies(printops):
-                        layer_output, memories[mem_key] = \
-                            layer['self_attn'].forward(
-                                layer_output, None, self_attn_mask, layer_memories)
-                    printops = []
-                    printops.append(tf.Print([], [tf.shape(layer_output), layer_output], "infer cross_attending" + str(layer_id), 10, 50))
-                    with tf.control_dependencies(printops):
-                        layer_output, _ = layer['cross_attn'].forward(
-                            layer_output, encoder_output.enc_output,
-                            encoder_output.cross_attn_mask)
+                    # printops = []
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "infer self_attending"+ str(layer_id), 10, 50))
+                    # with tf.control_dependencies(printops):
+                    layer_output, memories[mem_key] = \
+                        layer['self_attn'].forward(
+                            layer_output, None, self_attn_mask, layer_memories)
+                    # printops = []
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "infer cross_attending" + str(layer_id), 10, 50))
+                    # with tf.control_dependencies(printops):
+                    layer_output, _ = layer['cross_attn'].forward(
+                        layer_output, encoder_output.enc_output,
+                        encoder_output.cross_attn_mask)
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.
-                printops = []
-                printops.append(
-                    tf.Print([], [tf.shape(layer_output), layer_output[:, -1, :]],
-                             "is :,-1,:, in layer_output the logits of the last step (or rather of eos?)", 10, 50))
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(layer_output), layer_output[:, -1, :]],
+                #              "is :,-1,:, in layer_output the logits of the last step (or rather of eos?)", 10, 50))
 
-                with tf.control_dependencies(printops):
-                    # keep only the logits of the newly predicted word
-                    dec_output = layer_output[:, -1, :]
+                # with tf.control_dependencies(printops):
+                # keep only the logits of the newly predicted word
+                dec_output = layer_output[:, -1, :]
                 # Project decoder stack outputs and apply the soft-max
                 # non-linearity.
                 step_logits = \
@@ -296,14 +296,14 @@ class ModelAdapter:
         #     ids = [ids]
         label_dict = self.model.target_labels_dict
         inv_dict = {v: k for k, v in label_dict.items()}
-        print("ids", ids)
+        # print("ids", ids[0,:])
         # print("ids_shape", ids.shape)
         sents = [[inv_dict[idn] for idn in row if inv_dict[idn] not in ["<EOS>"]] # are allowed as words "<GO>", "<UNK>"
                  for row in ids]  # TODO is this indeed the right format of all the inputs?
         # strs = [inv_dict[idn] for idn in ids if inv_dict[idn] not in
         # ["<EOS>", "<GO>", "<UNK>"]] #TODO is this indeed the right format of
         # all the inputs?
-        print("sents for graph", sents)
+        # print("first sent for graph", sents[0])
         converted = [convert_text_to_graph(
             sent, self._config.maxlen + 1, label_dict, self.model.target_labels_num, graceful=True) for sent in sents]
         edge_times, label_times = zip(*converted)

@@ -16,8 +16,8 @@ if __name__ == '__main__':
     with open(args.filename) as fl:
         if args.out is None:
             for line in fl:
-                print(replace_by_shifts(text))
+                print(replace_by_shifts(line))
         else:
             with open(args.out) as outfl:
                 for line in fl:
-                    outfl.write(replace_by_shifts(text) + "\n")
+                    outfl.write(replace_by_shifts(line) + "\n")

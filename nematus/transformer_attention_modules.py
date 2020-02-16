@@ -152,13 +152,7 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
-            print_ops = []
-            print_ops.append(tf.Print([], [num_beams], "num_beams", 10, 100))
-            print_ops.append(tf.Print([], [tf.shape(attn_logits), attn_logits], "attn_logits", 10, 100))
-            print_ops.append(tf.Print([], [tf.shape(attn_mask), attn_mask[35:,:,:,:]], "final_attn_mask", 10, 100))
-            print_ops.append(tf.Print([], [tf.shape(attn_logits + attn_mask), attn_logits + attn_mask], "final weights", 10, 100))
-            with tf.control_dependencies(print_ops):
-              attn_logits += attn_mask
+            attn_logits += attn_mask
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)

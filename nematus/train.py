@@ -55,7 +55,7 @@ except (ModuleNotFoundError, ImportError) as e:
     import util
 
 np.random.seed(0)
-tf.random.set_random_seed(0)
+tf.random.set_seed(0)
 
 def load_data(config):
     logging.info('Reading data...')
@@ -215,9 +215,8 @@ def train(config, sess):
     n_sents, n_words = 0, 0
     last_time = time.time()
     logging.info("Initial uidx={}".format(progress.uidx))
-    print("number of parameters:", np.sum([np.prod(v.get_shape().as_list()) for v in tf.trainable_variables()]))
-    save_non_checkpoint(sess, saver, config.saveto)  # TODO deleteme
-    logging.info("saved")
+    logging.info("Number of trainable parameters:" + str(np.sum([np.prod(v.get_shape().as_list()) for v in tf.compat.v1.trainable_variables()])))
+
     # set epoch = 1 if print per-token-probability
     if config.print_per_token_pro:
         config.max_epochs = progress.eidx + 1
@@ -339,8 +338,10 @@ def train(config, sess):
                     progress.history_errs.append(valid_ce)
                     progress.bad_counter = 0
                     save_non_checkpoint(sess, saver, config.saveto)
+                    logging.info("saved to" + config.saveto)
                     progress_path = '{0}.progress.json'.format(config.saveto)
                     progress.save_to_json(progress_path)
+                    logging.info("saved json")
                 else:
                     progress.history_errs.append(valid_ce)
                     progress.bad_counter += 1
@@ -368,10 +369,14 @@ def train(config, sess):
                         progress.bad_counter = 0
                         save_path = config.saveto + ".best-valid-script"
                         save_non_checkpoint(sess, saver, save_path)
+                        logging.info("saved to" + config.saveto)
                         write_config_to_json_file(config, save_path)
+                        logging.info("saved json" + save_path)
 
                         progress_path = '{}.progress.json'.format(save_path)
+                        logging.info("saved json to " + progress_path)
                         progress.save_to_json(progress_path)
+                        logging.info("saved json")
 
             if config.save_freq and progress.uidx % config.save_freq == 0:
                 logging.info("saving model")
@@ -426,18 +431,23 @@ def save_non_checkpoint(session, saver, save_path):
     Returns:
         None.
     """
+    logging.info("Saving to " + save_path)
     head, tail = os.path.split(save_path)
     assert tail != ""
     base_dir = "." if head == "" else head
     with tempfile.TemporaryDirectory(dir=base_dir) as tmp_dir:
         tmp_save_path = os.path.join(tmp_dir, tail)
+        logging.info("Saving temp to " +  tmp_save_path)
         saver.save(session, save_path=tmp_save_path)
         for filename in os.listdir(tmp_dir):
             if filename == 'checkpoint':
                 continue
             new = os.path.join(tmp_dir, filename)
             old = os.path.join(base_dir, filename)
+            logging.info("Replacing " + new + " for " + old)
             os.replace(src=new, dst=old)
+            logging.info("Replaced " + new + " for " + old)
+
 
 
 def validate(session, model, config, text_iterator):
@@ -470,6 +480,7 @@ def validate_with_script(session, beam_search_sampler):
             normalization_alpha=config.normalization_alpha,
             nbest=False,
             minibatch_size=config.valid_batch_size)
+    logging.info("about to flush")
     out.flush()
     dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
     logging.info("Saving dev transltion of " + config.valid_source_dataset +" to " + dev_out_path)
@@ -555,8 +566,9 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
                  model.inputs.y_mask: y_mask,
                  model.inputs.training: False}
         if config.target_graph:
-            feeds[model.inputs.edge_times] = util.array_to_sparse_tensor(target_edges_time, feeding=True)
-            feeds[model.inputs.label_times] = util.array_to_sparse_tensor(target_labels_time, feeding=True)
+            timesteps = timesteps = y.shape[-1]
+            feeds[model.inputs.edges] = util.times_to_input(target_edges_time, timesteps)
+            feeds[model.inputs.labels] = util.times_to_input(target_labels_time, timesteps)
             # logging.info("fed ce_labels" + str(model.inputs.label_times.indices))
             # logging.info("fed ce_edges" + str(model.inputs.edge_times.indices))
         batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
@@ -577,6 +589,10 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
 
 
 if __name__ == "__main__":
+    import faulthandler
+    # print where faults  happen (SIGSEGV, SIGFPE, SIGABRT, SIGBUS, and SIGILL signals)
+    faulthandler.enable()
+
     # Parse command-line arguments.
     config = read_config_from_cmdline()
     logging.info(config)
@@ -589,7 +605,25 @@ if __name__ == "__main__":
     tf_config.allow_soft_placement = True
 
     # tf_config.gpu_options.allow_growth = True #TODO delete
+    # print("allowing grouth")
 
+    # config.gpu_options.per_process_gpu_memory_fraction = 0.95
+    # print("gpu fraction 0.95")
+
+    # gpus = tf.config.experimental.list_physical_devices('GPU')
+    # if gpus:
+    #     # Restrict TensorFlow to only allocate 1GB of memory on the first GPU
+    #     try:
+    # memory_limit = 4000
+    #         for gpu in gpus:
+    #             tf.config.experimental.set_virtual_device_configuration(
+    #                 gpu,
+    #                 [tf.config.experimental.VirtualDeviceConfiguration(memory_limit=memory_limit)])
+    #             logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+    #             print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs", "limited to", memory_limit)
+    #     except RuntimeError as e:
+    #         # Virtual devices must be set before GPUs have been initialized
+    #         print(e)
 
     # Train.
     with tf.compat.v1.Session(config=tf_config) as sess:

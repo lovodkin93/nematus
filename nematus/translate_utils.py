@@ -118,11 +118,10 @@ def translate_file(input_file, output_file, session, sampler, config,
         # translations and scores) for each sentence.
         beams = []
         for x in minibatches:
-            y_dummy = numpy.zeros(shape=(len(x),1))
-            if config.target_graph:
+            y_dummy = numpy.zeros(shape=(len(x), 1))
+            # if config.target_graph:
                 # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
-                logging.info("translating" + str(x))
-                logging.info("translating type" + str(type(x)))
+                # logging.info("translating" + str(x))
                 # x = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in x.tolist()]
             x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, config.factors,
                                                 maxlen=None)
