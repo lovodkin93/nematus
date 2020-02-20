@@ -23,6 +23,7 @@ from tensorflow.python.ops import nn
 # from tensorflow.python import math_ops
 # from tensorflow.contrib.eager import context
 
+
 def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
     r"""Tensor contraction of a and b along specified axes.
     Tensordot (also known as tensor contraction) sums the product of elements
@@ -91,7 +92,8 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             prod_free = int(np.prod([shape_a[i] for i in free]))
             prod_axes = int(np.prod([shape_a[i] for i in axes]))
             perm = list(axes) + free if flipped else free + list(axes)
-            new_shape = [prod_axes, prod_free] if flipped else [prod_free, prod_axes]
+            new_shape = [prod_axes, prod_free] if flipped else [
+                prod_free, prod_axes]
             reshaped_a = tf.reshape(tf.transpose(a, perm), new_shape)
             return reshaped_a, free_dims, free_dims
         else:
@@ -106,8 +108,8 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             rank_a = tf.rank(a)
             axes = tf.convert_to_tensor(axes, dtype=tf.int32, name="axes")
             axes = tf.cast(axes >= 0, tf.int32) * axes + tf.cast(
-                    axes < 0, tf.int32) * (
-                            axes + rank_a)
+                axes < 0, tf.int32) * (
+                axes + rank_a)
             # free, _ = tf.sets.difference(tf.range(rank_a), axes)
             free, _ = tf.compat.v1.setdiff1d(tf.range(rank_a), axes)
             free_dims = tf.gather(shape_a, free)
@@ -133,13 +135,13 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             if a_shape.ndims is not None:
                 if axes > a_shape.ndims:
                     raise ValueError("'axes' must not be larger than the number of "
-                                                     "dimensions of tensor %s." % a)
+                                     "dimensions of tensor %s." % a)
                 return (list(range(a_shape.ndims - axes, a_shape.ndims)),
-                                list(range(axes)))
+                        list(range(axes)))
             else:
                 rank = tf.rank(a)
                 return (range(rank - axes, rank, dtype=tf.int32),
-                                range(axes, dtype=tf.int32))
+                        range(axes, dtype=tf.int32))
         elif isinstance(axes, (list, tuple)):
             if len(axes) != 2:
                 raise ValueError("'axes' must be an integer or have length 2.")
@@ -151,8 +153,8 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
                 b_axes = [b_axes]
             if len(a_axes) != len(b_axes):
                 raise ValueError(
-                        "Different number of contraction axes 'a' and 'b', %s != %s." %
-                        (len(a_axes), len(b_axes)))
+                    "Different number of contraction axes 'a' and 'b', %s != %s." %
+                    (len(a_axes), len(b_axes)))
             return a_axes, b_axes
         else:
             axes = tf.convert_to_tensor(axes, name="axes", dtype=tf.int32)
@@ -187,8 +189,10 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             prod_free = int(np.prod([shape_a[i] for i in free]))
             prod_axes = int(np.prod([shape_a[i] for i in axes]))
             perm = list(axes) + free if flipped else free + list(axes)
-            new_shape = [prod_axes, prod_free] if flipped else [prod_free, prod_axes]
-            reshaped_a = tf.sparse.reshape(tf.sparse.transpose(a, perm), new_shape)
+            new_shape = [prod_axes, prod_free] if flipped else [
+                prod_free, prod_axes]
+            reshaped_a = tf.sparse.reshape(
+                tf.sparse.transpose(a, perm), new_shape)
             return reshaped_a, free_dims, free_dims
         else:
             if a.get_shape().ndims is not None and isinstance(axes, (list, tuple)):
@@ -202,8 +206,8 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             rank_a = tf.rank(a)
             axes = tf.convert_to_tensor(axes, dtype=tf.int32, name="axes")
             axes = tf.cast(axes >= 0, tf.int32) * axes + tf.cast(
-                    axes < 0, tf.int32) * (
-                            axes + rank_a)
+                axes < 0, tf.int32) * (
+                axes + rank_a)
             # free, _ = tf.sets.difference(tf.range(rank_a), axes)
             free, _ = tf.compat.v1.setdiff1d(tf.range(rank_a), axes)
             free_dims = tf.gather(shape_a, free)
@@ -231,13 +235,13 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
             if a_shape.ndims is not None:
                 if axes > a_shape.ndims:
                     raise ValueError("'axes' must not be larger than the number of "
-                                                     "dimensions of tensor %s." % a)
+                                     "dimensions of tensor %s." % a)
                 return (list(range(a_shape.ndims - axes, a_shape.ndims)),
-                                list(range(axes)))
+                        list(range(axes)))
             else:
                 rank = tf.rank(a)
                 return (range(rank - axes, rank, dtype=tf.int32),
-                                range(axes, dtype=tf.int32))
+                        range(axes, dtype=tf.int32))
         elif isinstance(axes, (list, tuple)):
             if len(axes) != 2:
                 raise ValueError("'axes' must be an integer or have length 2.")
@@ -249,55 +253,59 @@ def sparse_tensor_dense_tensordot(sp_a, b, axes, name=None):
                 b_axes = [b_axes]
             if len(a_axes) != len(b_axes):
                 raise ValueError(
-                        "Different number of contraction axes 'a' and 'b', %s != %s." %
-                        (len(a_axes), len(b_axes)))
+                    "Different number of contraction axes 'a' and 'b', %s != %s." %
+                    (len(a_axes), len(b_axes)))
             return a_axes, b_axes
         else:
             axes = tf.convert_to_tensor(axes, name="axes", dtype=tf.int32)
         return axes[0], axes[1]
 
     with tf.compat.v1.name_scope(name, "SparseTensorDenseTensordot", [sp_a, b, axes]) as name:
-#         a = tf.convert_to_tensor(a, name="a")
+        #         a = tf.convert_to_tensor(a, name="a")
         b = tf.convert_to_tensor(b, name="b")
         sp_a_axes, b_axes = _sparse_tensordot_axes(sp_a, axes)
-        sp_a_reshape, sp_a_free_dims, sp_a_free_dims_static = _sparse_tensordot_reshape(sp_a, sp_a_axes)
+        sp_a_reshape, sp_a_free_dims, sp_a_free_dims_static = _sparse_tensordot_reshape(
+            sp_a, sp_a_axes)
         b_reshape, b_free_dims, b_free_dims_static = _tensordot_reshape(
-                b, b_axes, True)
+            b, b_axes, True)
         ab_matmul = tf.sparse.sparse_dense_matmul(sp_a_reshape, b_reshape)
         if isinstance(sp_a_free_dims, list) and isinstance(b_free_dims, list):
             return tf.reshape(ab_matmul, sp_a_free_dims + b_free_dims, name=name)
         else:
-            sp_a_free_dims = tf.convert_to_tensor(sp_a_free_dims, dtype=tf.int32)
+            sp_a_free_dims = tf.convert_to_tensor(
+                sp_a_free_dims, dtype=tf.int32)
             b_free_dims = tf.convert_to_tensor(b_free_dims, dtype=tf.int32)
             product = tf.reshape(
-                    ab_matmul, tf.concat([sp_a_free_dims, b_free_dims], 0), name=name)
+                ab_matmul, tf.concat([sp_a_free_dims, b_free_dims], 0), name=name)
             if sp_a_free_dims_static is not None and b_free_dims_static is not None:
                 product.set_shape(sp_a_free_dims_static + b_free_dims_static)
             return product
 
+
 def dense_to_sparse(x, ignore_value=0, name=None):
-  """Converts dense `Tensor` to `SparseTensor`, dropping `ignore_value` cells.
-  Args:
-    x: A `Tensor`.
-    ignore_value: Entries in `x` equal to this value will be
-      absent from the return `SparseTensor`. If `None`, default value of
-      `x` dtype will be used (e.g. '' for `str`, 0 for `int`).
-    name: Python `str` prefix for ops created by this function.
-  Returns:
-    sparse_x: A `tf.SparseTensor` with the same shape as `x`.
-  Raises:
-    ValueError: when `x`'s rank is `None`.
-  """
-  # Copied (with modifications) from:
-  # tensorflow/contrib/layers/python/ops/sparse_ops.py.
-  with tf.name_scope(name or 'dense_to_sparse'):
-    x = tf.convert_to_tensor(x, name='x')
-    ignore_value = tf.cast(ignore_value, x.dtype, name='ignore_value')
-    indices = tf.where(tf.not_equal(x, ignore_value), name='indices')
-    return tf.SparseTensor(
-        indices=indices,
-        values=tf.gather_nd(x, indices, name='values'),
-        dense_shape=tf.shape(x, out_type=tf.int64, name='dense_shape'))
+    """Converts dense `Tensor` to `SparseTensor`, dropping `ignore_value` cells.
+    Args:
+      x: A `Tensor`.
+      ignore_value: Entries in `x` equal to this value will be
+        absent from the return `SparseTensor`. If `None`, default value of
+        `x` dtype will be used (e.g. '' for `str`, 0 for `int`).
+      name: Python `str` prefix for ops created by this function.
+    Returns:
+      sparse_x: A `tf.SparseTensor` with the same shape as `x`.
+    Raises:
+      ValueError: when `x`'s rank is `None`.
+    """
+    # Copied (with modifications) from:
+    # tensorflow/contrib/layers/python/ops/sparse_ops.py.
+    with tf.name_scope(name or 'dense_to_sparse'):
+        x = tf.convert_to_tensor(x, name='x')
+        ignore_value = tf.cast(ignore_value, x.dtype, name='ignore_value')
+        indices = tf.where(tf.not_equal(x, ignore_value), name='indices')
+        return tf.SparseTensor(
+            indices=indices,
+            values=tf.gather_nd(x, indices, name='values'),
+            dense_shape=tf.shape(x, out_type=tf.int64, name='dense_shape'))
+
 
 @tf_export(v1=['layers.dense'])
 class GCN(base.Layer):
@@ -399,18 +407,22 @@ class GCN(base.Layer):
         self.edge_labels_num = edge_labels_num
         self.bias_labels_num = bias_labels_num
         self.sparse_graph = sparse_graph
-        self.input_spec = [base.InputSpec(min_ndim=2), base.InputSpec(
+        if self.use_bias:
+            self.input_spec = [base.InputSpec(min_ndim=2), base.InputSpec(
             min_ndim=2), base.InputSpec(min_ndim=2)]
+        else:
+            self.input_spec = [base.InputSpec(min_ndim=2), base.InputSpec(
+                min_ndim=2)]
 
     def build(self, input_shape):
         base_input_shape = tensor_shape.TensorShape(input_shape[0])
         if self.vert_num is not None:
             vert_num = self.vert_num
         else:
-            vert_num = base_input_shape[-2]#.value
+            vert_num = base_input_shape[-2]  # .value
 
         self.vert_num = vert_num
-        embed_size = base_input_shape[-1]#.value
+        embed_size = base_input_shape[-1]  # .value
         self.embed_size = embed_size
         if embed_size is None:
             raise ValueError('The second to last dimension of the inputs to `GCN` - the embedding size - '
@@ -420,7 +432,8 @@ class GCN(base.Layer):
                              'should be defined. Found `None`.')
         if self.sparse_graph:
             if not self.edge_labels_num:
-                raise ValueError('edge_labels_num must be passed if graph is sparsely represented')
+                raise ValueError(
+                    'edge_labels_num must be passed if graph is sparsely represented')
             edge_labels_num = self.edge_labels_num
         else:
             edge_shape = tensor_shape.TensorShape(input_shape[1])
@@ -441,20 +454,22 @@ class GCN(base.Layer):
                                         # constraint=self.kernel_constraint,
                                         dtype=self.dtype,
                                         trainable=True)
-        self.gate_kernel = self.add_variable('gate_kernel',
-                                             shape=[embed_size,
-                                                    edge_labels_num],
-                                             initializer=self.gate_kernel_initializer,
-                                             regularizer=self.gate_kernel_regularizer,
-                                             # constraint=self.gate_kernel_constraint,
-                                             dtype=self.dtype,
-                                             trainable=True)
+        if self.gate:
+            self.gate_kernel = self.add_variable('gate_kernel',
+                                                 shape=[embed_size,
+                                                        edge_labels_num],
+                                                 initializer=self.gate_kernel_initializer,
+                                                 regularizer=self.gate_kernel_regularizer,
+                                                 # constraint=self.gate_kernel_constraint,
+                                                 dtype=self.dtype,
+                                                 trainable=True)
         self.edges_spec = base.InputSpec(
             min_ndim=4, axes={-3: vert_num, -2: vert_num, -1: edge_labels_num})
         if self.use_bias:
             if self.sparse_graph:
                 if not self.bias_labels_num:
-                    raise ValueError('bias_labels_num must be passed if graph is sparsely represented')
+                    raise ValueError(
+                        'bias_labels_num must be passed if graph is sparsely represented')
                 bias_labels_num = self.bias_labels_num
             else:
                 bias_shape = tensor_shape.TensorShape(input_shape[2])
@@ -497,7 +512,8 @@ class GCN(base.Layer):
                 # printops.append(tf.compat.v1.Print([], [tf.size(self.bias_labels.indices)], "bias_labels size", 10, 50))
                 # printops.append(tf.compat.v1.Print([], [tf.shape(self.gate_bias)], "gate_bias", 10, 50))
                 # with tf.control_dependencies(printops):
-                biases = sparse_tensor_dense_tensordot(self.bias_labels, self.gate_bias, [[-1], [-1]])
+                biases = sparse_tensor_dense_tensordot(
+                    self.bias_labels, self.gate_bias, [[-1], [-1]])
             else:
                 biases = math_ops.reduce_sum(
                     math_ops.multiply(self.gate_bias, self.bias_labels), [-1])
@@ -507,18 +523,22 @@ class GCN(base.Layer):
         # printops = []
         # printops.append(tf.compat.v1.Print([], [tf.shape(self.x), tf.shape(self.gate_kernel)], "gate_kernel shapes", 10, 300))
         # with tf.control_dependencies(printops):
-        xw = standard_ops.tensordot(self.x, self.gate_kernel, tf.constant([[-1], [0]], dtype=tf.int32))
+        xw = standard_ops.tensordot(
+            self.x, self.gate_kernel, tf.constant([[-1], [0]], dtype=tf.int32))
         xw = expand_dims(xw, 2)
 
         # main gate
         if self.sparse_graph:
-            res_shape = self.labels.dense_shape #tf.cast(tf.shape(self.labels), tf.int64)
+            # tf.cast(tf.shape(self.labels), tf.int64)
+            res_shape = self.labels.dense_shape
             gate_indices = self.labels.indices
             # printops = []
             # printops.append(
             #     tf.compat.v1.Print([], [tf.shape(gate_indices), gate_indices], "gate_indices", 10, 300))
             # with tf.control_dependencies(printops):
-            gate_indices = tf.constant([1, 1, 0, 1], dtype=gate_indices.dtype) * gate_indices # gates care only about first label
+            # gates care only about first label
+            gate_indices = tf.constant(
+                [1, 1, 0, 1], dtype=gate_indices.dtype) * gate_indices
 
             # printops = []
             # printops.append(
@@ -527,11 +547,11 @@ class GCN(base.Layer):
             # printops.append(tf.compat.v1.Print([], [tf.shape(self.labels)], "labels_xw", 10, 50))
             # printops.append(tf.compat.v1.Print([], [tf.shape(tf.gather_nd(xw, gate_indices))], "gate_gathered", 10, 50))
             # with tf.control_dependencies(printops):
-            res_vals = tf.gather_nd(xw, gate_indices) # * self.labels.values only needed if weighted labels
-
+            # * self.labels.values only needed if weighted labels
+            res_vals = tf.gather_nd(xw, gate_indices)
 
             # assumes not a multi-label-graph
-            indices = self.labels.indices[:,:-1] # * [1,1,1,0]
+            indices = self.labels.indices[:, :-1]  # * [1,1,1,0]
             # printops = []
             # indices = indices[:,0] + indices[:,1] * 100 + indices[:,2] * 100 * 100 # + indices[:,3] * 100 * 100 * 100
             # printops.append(
@@ -539,18 +559,19 @@ class GCN(base.Layer):
             # printops.append(
             #     tf.compat.v1.Print([], [tf.compat.v1.py_func(count_dupligates, [self.labels.indices[:,:-1]], [tf.dtypes.int64, tf.dtypes.int64], False)], "gate_indices kept?", 10, 300))
             # with tf.control_dependencies(printops):
-                # edges = tf.sparse.reduce_sum(sparse_xw, axis=-1)
-            sparse_xw = tf.SparseTensor(indices, res_vals, res_shape[:-1]) # assumes not a multi-graph
+            # edges = tf.sparse.reduce_sum(sparse_xw, axis=-1)
+            sparse_xw = tf.SparseTensor(indices, res_vals, res_shape[
+                                        :-1])  # assumes not a multi-graph
             edges = tf.compat.v1.sparse.to_dense(sparse_xw)
 
             # sparse_xw = tf.SparseTensor(self.labels.indices, res_vals, res_shape) # for a multi-graph
             # edges = tf.sparse.reduce_sum(sparse_xw, axis=-1)
 
-                # printops = []
-                # printops.append(tf.compat.v1.Print([], [tf.shape(sparse_xw)], "sparse_xw shape", 10, 50))
-                # printops.append(tf.compat.v1.Print([], [sparse_xw.indices], "sparse_xw indices", 10, 50))
-                # printops.append(tf.compat.v1.Print([], [sparse_xw.values], "sparse_xw vals", 10, 50))
-                # with tf.control_dependencies(printops):
+            # printops = []
+            # printops.append(tf.compat.v1.Print([], [tf.shape(sparse_xw)], "sparse_xw shape", 10, 50))
+            # printops.append(tf.compat.v1.Print([], [sparse_xw.indices], "sparse_xw indices", 10, 50))
+            # printops.append(tf.compat.v1.Print([], [sparse_xw.values], "sparse_xw vals", 10, 50))
+            # with tf.control_dependencies(printops):
         else:
             edges = math_ops.reduce_sum(
                 math_ops.multiply(xw, self.labels), [-1])
@@ -608,56 +629,66 @@ class GCN(base.Layer):
 
     def xw_by_labels(self, kernel, sparse):
         """
-        multiplies a dense kernel tensor by a sparse tensor. kernel is of size [batch_size, max_len, 1, embedding, edge_type_num] and sparse [batch_size, max_len, max_len, edge_type_num=3]
+        multiplies a dense kernel tensor by a sparse tensor. kernel is of size [batch_size, max_sent_len, 1, embedding, edge_type_num] and sparse [batch_size, max_sent_len, max_sent_len, edge_type_num=3]
         returns the value after multiplication and after summing out last sparse dimension (labels)
         :param kernel:
         :param sparse:
         :return:
         """
-        # kernel = tf.transpose(kernel, [4, 0, 1, 2, 3]) # [edge_type_num, batch_size, max_len, 1, embedding]
-        # sparse = tf.sparse.transpose(sparse, [3, 0, 1, 2]) # [edge_type_num=3, batch_size, max_len, max_len]
         kernel_shape = tf.shape(kernel, out_type=tf.int64)
         embedding_size = kernel_shape[-2]
-        values_len = tf.shape(sparse.indices, out_type=tf.int64)[0]
-        max_len = kernel_shape[1]
+        nonzero_vals_num = tf.shape(sparse.indices, out_type=tf.int64)[0]
+        max_sent_len = kernel_shape[1]
 
-        # expand sparse
-        res_shape = kernel_shape[:-1] # remove edges
-        res_shape = res_shape * [1, 1, max_len, 1] # broadcast
-        #tf.concat([tf.kernel_shape[:3], max_len, kernel_shape[3:]])  # resulting shape has max_len rather then 1
-
+        # embed_col = tf.sort(tf.tile(tf.range(embedding_size), [nonzero_vals_num]))  # 1 X embedding size tensor to add to indices (form: [1,1,1...2,2,2...])
         # printops = []
         # printops.append(
-        #     tf.compat.v1.Print([], [kernel_shape, embedding_size, tf.shape(sparse), values_len], "kernel shapes", 10, 50))
+        #     tf.compat.v1.Print([], [kernel_shape, embedding_size, tf.shape(sparse), nonzero_vals_num], "kernel shapes", 10, 50))
         # with tf.control_dependencies(printops):
-        # embed_dim = tf.sort(tf.tile(tf.range(embedding_size), [values_len]))  # 1 X embedding size tensor to add to indices (form: [1,1,1...2,2,2...])
-        embed_dim = repeat(tf.range(embedding_size), values_len, 0)  # 1 X embedding size tensor to add to indices (form: [1,1,1...2,2,2...]) # use sort and tile if repeat unavailable
-        embed_dim = tf.reshape(embed_dim, [-1,1]) # reshape for concat)
-
-        indices = sparse.indices
-        res_idx = tf.tile(indices, [embedding_size, 1])  # duplicate indices embedding size times
-        res_idx = tf.concat([res_idx, embed_dim], 1)
+        #     embed_col = repeat(tf.range(embedding_size), nonzero_vals_num, 0)  # 1 X embedding size tensor to add to indices (form: [1,1,1...2,2,2...]) # use sort and tile if repeat unavailable
+        # embed_col = tf.reshape(embed_col, [-1,1]) # reshape for concat)
+        embed_col = tf.tile(tf.range(embedding_size), [nonzero_vals_num])
+        embed_col = tf.expand_dims(embed_col, -1)
 
         # printops = []
-        # printops.append(tf.compat.v1.Print([], [tf.shape(res_idx), res_idx], "res_idx", 10, 1250))
-        # # printops.append(tf.compat.v1.Print([], [tf.shape(res_idx[:,0]), tf.shape(res_idx[:,1])], "sub res_idx shapes", 10, 50))
+        # printops.append(tf.compat.v1.Print([], [tf.shape(embed_col), embed_col], "embed_col", 10, 30))
+        # with tf.control_dependencies(printops):
+        indices = sparse.indices
+
+        # expand sparse
+        res_shape = kernel_shape[:-1]  # remove edges
+        res_shape = res_shape * [1, 1, max_sent_len, 1]  # broadcast
+
+        embedded_idx = indices
+        embedded_idx = repeat(embedded_idx, embedding_size, 0)
+        # embedded_idx = tf.tile(embedded_idx, [embedding_size, 1])  #
+        # duplicate indices embedding size times
+
+        embedded_idx = tf.concat([embedded_idx, embed_col], 1)
+
+        # printops = []
+        # printops.append(tf.compat.v1.Print([], [tf.shape(embedded_idx), embedded_idx], "embedded_idx", 10, 1250))
+        # # printops.append(tf.compat.v1.Print([], [tf.shape(embedded_idx[:,0]), tf.shape(embedded_idx[:,1])], "sub embedded_idx shapes", 10, 50))
         # with tf.control_dependencies(printops):
         ker_idx = tf.constant([1, 1, 0, 1, 1],
-                              dtype=res_idx.dtype) * res_idx  # xw does not have only one max_len sized dimension (after transpose num 3)
-        res_idx = tf.gather(params=res_idx, indices=[0,1,2,4], axis=1) # remove edges, does not support multi-graph (=multiple labels per edge)
-
+                              dtype=embedded_idx.dtype) * embedded_idx  # xw does not have only one max_sent_len sized dimension (after transpose num 3)
+        # remove edges, does not support multi-graph (=multiple labels per
+        # edge)
+        res_idx = tf.gather(params=embedded_idx, indices=[0, 1, 2, 4], axis=1)
 
         # multiply by xw
         res_vals = tf.gather_nd(kernel, ker_idx)
         sparse_kernel = tf.SparseTensor(res_idx, res_vals, res_shape)
-
-        printops = []
-        printops.append(
-            tf.compat.v1.Print([], [
-                tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(sparse_kernel).indices, sparse_kernel.indices],
-                                     [tf.dtypes.bool], False)], "output indices kept?", 10, 300))
-        with tf.control_dependencies(printops):
-            outputs = tf.sparse.reorder(sparse_kernel)
+        outputs = sparse_kernel
+        # printops = []
+        # printops.append(
+        #     tf.compat.v1.Print([], [
+        #         tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(sparse_kernel).indices, sparse_kernel.indices],
+        #                              [tf.dtypes.bool], False)], "output indices kept?", 10, 300))
+        # printops.append(tf.compat.v1.Print([], [tf.sparse.reorder(sparse_kernel).indices], "ordered output", 10, 300))
+        # printops.append(tf.compat.v1.Print([], [sparse_kernel.indices], "unordered output", 10, 300))
+        # with tf.control_dependencies(printops):
+        #     outputs = tf.sparse.reorder(sparse_kernel)
 
         # printops = []
         # printops.append(tf.compat.v1.Print([], [tf.shape(sparse_kernel), tf.shape(res_idx), res_shape, tf.shape(res_vals)], "res_idx shapes", 10, 50))
@@ -673,12 +704,12 @@ class GCN(base.Layer):
         #         tf.compat.v1.py_func(count_duplikernels, [res_idx[:,:-1]], [tf.dtypes.int64, tf.dtypes.int64], False)],
         #                        "kernel_indices kept?", 10, 300))
         # with tf.control_dependencies(printops):
-            # sparse_kernel = tf.SparseTensor(res_idx, res_vals, res_shape)
-            # sparse_kernel = tf.sparse.transpose(sparse_kernel, [1,2,3,4,0]) # for multi-graph
-            # outputs = tf.sparse.reduce_sum(sparse_kernel, axis=-1)
+        # sparse_kernel = tf.SparseTensor(res_idx, res_vals, res_shape)
+        # sparse_kernel = tf.sparse.transpose(sparse_kernel, [1,2,3,4,0]) # for multi-graph
+        # outputs = tf.sparse.reduce_sum(sparse_kernel, axis=-1)
         return outputs
 
-    def original_calculate_kernel(self): #TODO delete
+    def original_calculate_kernel(self):  # TODO delete
 
         shape = tf.shape(self.x)
 
@@ -687,7 +718,8 @@ class GCN(base.Layer):
         # printops.append(tf.compat.v1.Print([], [self.kernel], "kernel", 10, 50))
         # printops.append(tf.compat.v1.Print([], [tf.shape(self.x), tf.shape(self.kernel)], "shape main_kernel", 10, 50))
         # with tf.control_dependencies(printops):
-        xw = standard_ops.tensordot(self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
+        xw = standard_ops.tensordot(
+            self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
 
         # broadcast for each neighbor
         xw = expand_dims(xw, 2)
@@ -697,7 +729,8 @@ class GCN(base.Layer):
         else:
             xw = tile(xw, [1, 1, shape[-2], 1, 1])
             labeled_edges = expand_dims(self.labels, -2)
-            outputs = math_ops.reduce_sum(math_ops.multiply(xw, labeled_edges), [-1])
+            outputs = math_ops.reduce_sum(
+                math_ops.multiply(xw, labeled_edges), [-1])
         return outputs
     # def original_kernel_by_sparse(self, kernel, sparse): # TODO delete
     #     """
@@ -758,7 +791,8 @@ class GCN(base.Layer):
         # printops.append(tf.compat.v1.Print([], [self.kernel], "kernel", 10, 50))
         # printops.append(tf.compat.v1.Print([], [tf.shape(self.x), tf.shape(self.kernel)], "shape main_kernel", 10, 50))
         # with tf.control_dependencies(printops):
-        xw = standard_ops.tensordot(self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
+        xw = standard_ops.tensordot(
+            self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
 
         # broadcast for each neighbor
         xw = expand_dims(xw, 2)
@@ -768,7 +802,8 @@ class GCN(base.Layer):
         else:
             xw = tile(xw, [1, 1, shape[-2], 1, 1])
             labeled_edges = expand_dims(self.labels, -2)
-            outputs = math_ops.reduce_sum(math_ops.multiply(xw, labeled_edges), [-1])
+            outputs = math_ops.reduce_sum(
+                math_ops.multiply(xw, labeled_edges), [-1])
         return outputs
 
     def calculate_bias(self):
@@ -783,10 +818,12 @@ class GCN(base.Layer):
             # printops.append(tf.compat.v1.Print([], [tf.shape(self.bias_labels.indices), self.bias_labels.indices], "indicesbias_labels", 10, 50))
             # printops.append(tf.compat.v1.Print([], [tf.shape(self.bias), self.bias], "bias", 10, 50))
             # with tf.control_dependencies(printops):
-            labeled_bias = sparse_tensor_dense_tensordot(self.bias_labels, self.bias, [[-1], [-1]])
+            labeled_bias = sparse_tensor_dense_tensordot(
+                self.bias_labels, self.bias, [[-1], [-1]])
             # labeled_bias = tf.contrib.layers.dense_to_sparse(labeled_bias)
         else:
-            labeled_bias = standard_ops.tensordot(self.bias_labels, self.bias, [[-1], [-1]])
+            labeled_bias = standard_ops.tensordot(
+                self.bias_labels, self.bias, [[-1], [-1]])
         return labeled_bias
 
     def call(self, inputs,  *args, **kwargs):
@@ -797,7 +834,8 @@ class GCN(base.Layer):
         if self.sparse_graph:
             self.labels = inputs[1]
         else:
-            self.labels = math_ops.cast(ops.convert_to_tensor(inputs[1]), self.dtype)
+            self.labels = math_ops.cast(
+                ops.convert_to_tensor(inputs[1]), self.dtype)
 
         # print_ops = []
         # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.labels), self.labels.indices, self.labels.values], "edges input", 10, 100))
@@ -820,8 +858,8 @@ class GCN(base.Layer):
                     #                        "output_sizes", 10, 100))
                     # print_ops.append(tf.compat.v1.Print([], [tf.shape(inputs[0]), inputs[0][0, :, 0]], "x input shape and first sent", 10, 50))
                     # with tf.control_dependencies(print_ops):
-                        #     outputs = tf.sparse.add(outputs, bias)
-                        # outputs = outputs + self.calculate_bias()
+                    #     outputs = tf.sparse.add(outputs, bias)
+                    # outputs = outputs + self.calculate_bias()
                     bias = self.calculate_bias()
                     # bias = tf.tile(bias, [])
                     # outputs = outputs + bias
@@ -834,16 +872,19 @@ class GCN(base.Layer):
                     #                        "output_sizes", 10, 1000))
                     # # print_ops.append(tf.compat.v1.Print([], [tf.shape(inputs[0]), inputs[0][0, :, 0]], "x input shape and first sent", 10, 50))
                     # with tf.control_dependencies(print_ops):
-                    bias = dense_to_sparse(bias)
 
-                    outputs = tf.sparse.add(outputs, bias)
+                    outputs = tf.sparse.add(outputs, bias) # dense
+
                 else:
-                    self.bias_labels = math_ops.cast(ops.convert_to_tensor(inputs[2]), self.dtype)
+                    self.bias_labels = math_ops.cast(
+                        ops.convert_to_tensor(inputs[2]), self.dtype)
                     bias = self.calculate_bias()
-                    outputs = outputs + self.calculate_bias()
+                    outputs = outputs + bias
 
         with tf.compat.v1.variable_scope("gating"):
             if self.gate:
+                if self.use_bias:
+                    outputs = dense_to_sparse(outputs)
                 gates = self.calculate_gates()
                 printops = []
                 # printops.append(tf.compat.v1.Print([], [tf.shape(gates), gates], "gate_out", 10, 50))
@@ -855,10 +896,11 @@ class GCN(base.Layer):
                 if self.sparse_graph:
 
                     # outputs.set_shape([None, None, None, None]) #TODO delete if outputs already sparse
-                    # outputs = dense_to_sparse(outputs) # tf.contrib.layers. # tfp.math.dense_to_sparse
+                    # outputs = dense_to_sparse(outputs) # tf.contrib.layers. #
+                    # tfp.math.dense_to_sparse
 
                     # multiply without tiling or converting outputs to dense
-                    gate_indices = outputs.indices * [1,1,1,0]
+                    gate_indices = outputs.indices * [1, 1, 1, 0]
                     # printops = []
                     # printops.append(tf.compat.v1.Print([], [tf.shape(gates), gates], "gate_out", 10, 50))
                     # tmp = tf.contrib.layers.dense_to_sparse(gates - 0.5)
@@ -866,24 +908,38 @@ class GCN(base.Layer):
                     # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.shape(outputs.indices), outputs.indices, outputs.values], "general_out", 10, 1000))
                     # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), outputs[:, :2, :2, :10]], "general_out", 10, 1000))
                     # with tf.control_dependencies(printops):
-                    gated_vals = tf.gather_nd(gates, gate_indices) * outputs.values
-                    outputs = tf.SparseTensor(outputs.indices, gated_vals, outputs.dense_shape)# tf.cast(tf.shape(self.labels), tf.int64)
+                    gated_vals = tf.gather_nd(
+                        gates, gate_indices) * outputs.values
+                    # tf.cast(tf.shape(self.labels), tf.int64)
+                    outputs = tf.SparseTensor(
+                        outputs.indices, gated_vals, outputs.dense_shape)
                     # printops = []
                     # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.shape(outputs.indices), outputs.indices, outputs.values], "towards reduce_sum", 10, 50))
                     # with tf.control_dependencies(printops):
-                    # outputs = tf.sparse.reduce_sum(outputs, axis=-2) # for memory optimization
-                    outputs = tf.reduce_sum(tf.compat.v1.sparse.to_dense(outputs), axis=-2) # for speed optimization on gpu
+
+                    # outputs = tf.reduce_sum(tf.compat.v1.sparse.to_dense(
+                    #     outputs), axis=-2)  # for speed optimization on gpu
                 else:
                     outputs = math_ops.multiply(gates, outputs)
-                    outputs = math_ops.reduce_sum(outputs, [-2])
 
-        out_shape = [-1, self.vert_num, self.embed_size]
+            if self.sparse_graph:
+                if self.gate or not self.bias:
+                    outputs = tf.compat.v1.sparse.to_dense(outputs)
+                # printops = []
+                # printops.append(tf.compat.v1.Print([], [out_shape], "towards rehsaping to out_shape", 10, 50))
+                # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.math.count_nonzero(outputs)], "towards rehsaping outputs", 10, 50))
+                # with tf.control_dependencies(printops):
+                outputs = tf.reduce_sum(outputs, axis=-2)  # for speed optimization on gpu
+                # outputs = tf.sparse.reduce_sum(outputs, axis=-2) # for memory optimization
+            else:
+                outputs = math_ops.reduce_sum(outputs, [-2])
+        # out_shape = [-1, self.vert_num, self.embed_size]
 
         # printops = []
-        # # printops.append(tf.compat.v1.Print([], [out_shape], "towards rehsaping to out_shape", 10, 50))
+        # printops.append(tf.compat.v1.Print([], [out_shape], "towards rehsaping to out_shape", 10, 50))
         # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.math.count_nonzero(outputs)], "towards rehsaping outputs", 10, 50))
         # with tf.control_dependencies(printops):
-        outputs = tf.reshape(outputs, out_shape)
+        # outputs = tf.reshape(outputs, out_shape)
 
         if self.activation is not None:
             return self.activation(outputs)  # pylint: disable=not-callable
@@ -898,6 +954,7 @@ class GCN(base.Layer):
                 % input_shape)
         return input_shape[0][:-1].concatenate(self.units)
 
+
 def sparse_dense_matmult_batch(sp_a, b):
 
     def map_function(x):
@@ -910,6 +967,7 @@ def sparse_dense_matmult_batch(sp_a, b):
 
     elems = (tf.range(0, sp_a.dense_shape[0], delta=1, dtype=tf.int64), b)
     return tf.map_fn(map_function, elems, dtype=tf.float32, back_prop=True)
+
 
 @tf_export(v1=['layers.dense'])
 def gcn(
@@ -1018,11 +1076,13 @@ def gcn(
 #     array = np.array(array)
 #     print(np.unique(array,axis=-1).shape, "kernel unique shape")
 #     return np.unique(array,axis=-1).shape
-def assert_ordered(indices, indices2): # TODO delete
+
+
+def assert_ordered(indices, indices2):  # TODO delete
     for ind, ind2 in zip(indices, indices2):
         if np.any(ind != ind2):
             print("unordered:", ind, ind2)
-            print(list(indices)[:30])
-            print(list(indices2)[:30])
+            print("ind1", list(indices)[:30])
+            print("ind2", list(indices2)[:30])
             return False
     return True

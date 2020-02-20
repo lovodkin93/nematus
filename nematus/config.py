@@ -363,6 +363,12 @@ class ConfigSpecification:
             type=int,
             help='Number of gcn layers in target graphs, if target_graph is used.'))
 
+        group.append(ParameterSpecification(
+            name='target_gcn_gating', default="True",
+            visible_arg_names=['--no_gcn_gating'],
+            action='store_false',
+            help='Whether to use gating in gcns.'))
+
         # Add command-line parameters for 'network_rnn' group.
 
         group = param_specs['network_rnn']

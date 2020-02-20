@@ -374,7 +374,8 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
     for i in range(edge_times.shape[0]):
         edge_times[i, i, slf] = i
 
-    label_times = numpy.zeros((max_len, max_len, num_labels)) + float("inf")
+    if num_labels:
+        label_times = numpy.zeros((max_len, max_len, num_labels)) + float("inf")
     # for i in range(label_times.shape[0]):
     #     label_times[i, i, slf] = i # TODO labels do not need diagon (delete this for loop
     token_num = 0
@@ -390,7 +391,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
         # last = tokens_stack
 
         if token.endswith(edge_end):
-            assert graceful or not label
+            assert graceful or not label or not num_labels
             label = True
             if token.startswith(ConllSent.REDUCE_L):
                 min_len_cond = len(idxs_stack) > 1
@@ -431,7 +432,10 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
 
             if split:
                 assert token.endswith(edge_end)
-            else:
+            elif num_labels:
+                if token not in labels_dict or labels_dict[token] >= label_times.shape[-1]:
+                    print("Token error, token:", token, "labels_dict:", labels_dict, "label_times shape", label_times.shape)
+                    print("token num:", labels_dict[token])
                 for head in heads_ids:
                     for dependent in dependent_ids:
                         label_times[head, dependent, labels_dict[token]] = token_id
@@ -439,10 +443,13 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
 
         elif token.startswith(label_start):
             assert not split
-            assert graceful or label
+            assert graceful or label or not num_labels
             assert graceful or "root" not in token or root
-            if label:
+            if label and num_labels:
                 label = False
+                if token not in labels_dict or labels_dict[token] >= label_times.shape[-1]:
+                    print("Token error, token:", token, "labels_dict:", labels_dict, "label_times shape", label_times.shape)
+                    print("token num:", labels_dict[token])
                 for head in heads_ids:
                     for dependent in dependent_ids:
                         label_times[head, dependent, labels_dict[token]] = token_id
@@ -454,7 +461,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
                     edge_times[token_id, dependent, right_edge] = token_id
 
         else:
-            assert graceful or not label
+            assert graceful or not label or not num_labels
             label = False
             idxs_stack.append(token_id)
             tokens_stack.append(token)
@@ -463,5 +470,8 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
     # print("x_target for graph convert", x_target, np.array(x_target).shape)
 
     edge_times = np.array(edge_times, dtype=np.float32)
-    label_times = np.array(label_times, dtype=np.float32)
+    if num_labels:
+        label_times = np.array(label_times, dtype=np.float32)
+    else:
+        label_times = np.zeros(1, dtype=np.float32)
     return edge_times, label_times

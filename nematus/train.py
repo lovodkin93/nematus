@@ -238,7 +238,7 @@ def train(config, sess):
                 target_labels_time = None
             logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
 
-            # print(target_labels_time, "target_labels_time shape")
+
             x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time = util.prepare_data(
                 source_sents, target_sents, target_edges_time, target_labels_time, config.factors, maxlen=None)
 

@@ -39,21 +39,14 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
-    # print("do lengthes change?", lengths_x, lengths_y) #TODO check and solve
 
     # move edges to length major instead of batch major
     if seq_edges_time is not None:
-        # target_edges = numpy.array(seq_edges)
-        # target_edges = numpy.moveaxis(target_edges, 0, -1)
-        # target_labels = numpy.array(seq_labels)
-        # target_labels = numpy.moveaxis(target_labels, 0, -1)
         target_edges_time = numpy.array(seq_edges_time)
         target_edges_time = numpy.moveaxis(target_edges_time, 0, -1)
         target_labels_time = numpy.array(seq_labels_time)
         target_labels_time = numpy.moveaxis(target_labels_time, 0, -1)
     else:
-        # target_edges = None
-        # target_labels = None
         target_edges_time = None
         target_labels_time = None
 
@@ -76,10 +69,8 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
         lengths_y = new_lengths_y
         seqs_y = new_seqs_y
         if seq_edges_time is not None:
-            # target_edges = target_edges[:,:,:,kept]
-            # target_labels = target_labels[:,:,:,kept]
-            target_edges_time = target_edges_time[:,:,:,kept]
-            target_labels_time = target_labels_time[:,:,:,kept]
+            target_edges_time = target_edges_time[:, :, :, kept]
+            target_labels_time = target_labels_time[:, :, :, kept]
         if len(lengths_x) < 1 or len(lengths_y) < 1:
             return None, None, None, None, None, None
 
@@ -104,32 +95,26 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
 def times_to_input(times, timesteps):
 
     idx = []
-    # values = []
-    shape = times.shape
-    for sentence in times: # make sure iterates sentences
-        print("got right?", sentence, sentence.shape, times.shape)
+    for sentence_num in range(times.shape[-1]):
+        sentence = times[:, :, :, sentence_num]
         sparse = array_to_sparse_tensor(sentence, feeding=True)
-        cur_idx = np.tile(sparse.indices, [timesteps])
+        cur_idx = np.tile(sparse.indices, [timesteps, 1])
         cur_vals = np.tile(sparse.values, [timesteps])
-        cur_timesteps = np.array([i//timesteps for i in range(cur_idx.shape[0])])
-        cur_idx[:,0] = cur_idx[:,0] * timesteps + cur_timesteps
+        num_indices = sparse.indices.shape[0] #  = cur_idx.shape[0] / timesteps
+        cur_timesteps = np.array([i//num_indices for i in range(cur_idx.shape[0])])
+        cur_idx = np.c_[cur_idx, sentence_num * timesteps + cur_timesteps] # add batch column
         cond = cur_vals < (cur_timesteps + 1)
-        cur_idx = cur_idx[cond]
+        cur_idx = cur_idx[cond, :]
         idx.append(cur_idx)
-        # cur_vals = cur_vals[cond]
-        # values.append(cur_vals)
 
     idx = np.concatenate(idx, axis=0)
-    values = np.ones_like(idx, dtype=np.float32)
-    sparse = tf.compat.v1.SparseTensorValue(indices=idx, values=values, shape=shape)
+    values = np.ones((idx.shape[0],), dtype=np.float32)
+    shape = times.shape * np.array((1, 1, 1, timesteps))
+    sparse = tf.compat.v1.SparseTensorValue(indices=idx, values=values, dense_shape=shape)
     return sparse
 
+
 def array_to_sparse_tensor(ar, base_val=float("inf"), feeding=False):
-    # indices = np.nonzero(ar != base_val)
-    # values = ar[indices]
-    # shape = ar.shape
-    # indices = np.transpose(indices)
-    # sparse = tf.compat.v1.SparseTensorValue(indices=indices, values=values, dense_shape=shape) #TODO why are the inf in the values?
     if not feeding:
         ar = tf.convert_to_tensor(ar)
     sparse = dense_to_sparse_tensor(ar, base_val=base_val, feeding=feeding)
@@ -150,25 +135,12 @@ def dense_to_sparse_tensor(dns, base_val=float("inf"), feeding=False):
         idx = np.array(np.where(dns != base_val)).transpose()
         shape = dns.shape
         values = dns[dns != base_val].flatten()
-
-        # #delete those
-        # print("idx", idx)
-        # print("idx", idx.shape, type(idx))
-        # tf_dns = tf.convert_to_tensor(dns)
-        # tf_base_val = tf.convert_to_tensor(base_val)
-        # print("dns, base", tf_dns, tf_base_val)
-        # ne = tf.not_equal(tf_dns, tf_base_val)
-        # print("ne", ne)
-        # print("whe", tf.where(tf.not_equal(tf_dns, tf_base_val)))
-        # # print("dense_to_sparse_tensor:", idx, tf.where(tf.not_equal(tf_dns, tf_base_val)), tf.convert_to_tensor(idx) == tf.where(tf.not_equal(tf_dns, tf_base_val)))
-        # idx = tf.convert_to_tensor(idx)
     else:
         idx = tf.where(tf.not_equal(dns, base_val))
         values = tf.gather_nd(dns, idx)
         shape = tf.cast(tf.shape(dns), tf.int64)
         sparse_init = tf.compat.v1.SparseTensor
     sparse = sparse_init(indices=idx, values=values, dense_shape=shape)
-    # print(sparse, "feeding", feeding)
     return sparse
 
 

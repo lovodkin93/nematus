@@ -72,7 +72,7 @@ class ModelUpdater(object):
                     models=[replicas[0]],
                     configs=[config],
                     beam_size=config.samplesN)
-        self.deleteme = 0
+        # self.deleteme = 0
 
 
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
@@ -160,7 +160,7 @@ class ModelUpdater(object):
         # Accumulate gradients.
         # the list to store the per-token-probability if required
         print_pro = []
-        profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
+        # profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
         for i in range(0, len(split_x), len(self._replicas)):
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
@@ -184,30 +184,29 @@ class ModelUpdater(object):
                         j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = True
                 if self._config.target_graph:
-                    timesteps = split_y[i + j].shape[-1]
-                    feed_dict[self._replicas[j].inputs.edge_times] = util.times_to_input(split_x_edges_time[i + j],
-                                                                                         timesteps)
-                    feed_dict[self._replicas[j].inputs.label_times] = util.times_to_input(split_x_labels_time[i + j],
-                                                                                          timesteps)
+                    timesteps = split_y[i + j].shape[0]
+                    feed_dict[self._replicas[j].inputs.edge_times] = util.times_to_input(
+                        split_x_edges_time[i + j],timesteps)
+                    if self._config.target_labels_num:
+                        feed_dict[self._replicas[j].inputs.label_times] = util.times_to_input(
+                            split_x_labels_time[i + j], timesteps)
 
             if self._config.print_per_token_pro == False:
 
-                run_meta = tf.compat.v1.RunMetadata()
-                run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
-                session.run([self._graph.accum_ops], feed_dict=feed_dict, options=run_options, run_metadata=run_meta)
-                profiler.add_step(self.deleteme, run_meta)  # TODO delete
-                self.deleteme += 1
-
-                profiler.add_step(self.deleteme, run_meta)  # TODO delete
-                self.deleteme += 1
+                # run_meta = tf.compat.v1.RunMetadata()
+                # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
+                session.run([self._graph.accum_ops], feed_dict=feed_dict) #, options=run_options)#, run_metadata=run_meta)
+                # profiler.add_step(self.deleteme, run_meta)  # TODO delete
+                # self.deleteme += 1
                 #
-                # # Profile the parameters of your model.
-                # # profiler.profile_name_scope(options=(tf.compat.v1.profiler.ProfileOptionBuilder
-                # #                                      .trainable_variables_parameter()))
-                #
-                # # Or profile the timing of your model operations.
-                opts = tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory()
-                profiler.profile_operations(options=opts)
+                # #
+                # # # Profile the parameters of your model.
+                # # # profiler.profile_name_scope(options=(tf.compat.v1.profiler.ProfileOptionBuilder
+                # # #                                      .trainable_variables_parameter()))
+                # #
+                # # # Or profile the timing of your model operations.
+                # opts = tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory()
+                # profiler.profile_operations(options=opts)
                 #
                 # # # Or you can generate a timeline:
                 # # opts = (tf.compat.v1.profiler.ProfileOptionBuilder(
@@ -215,19 +214,19 @@ class ModelUpdater(object):
                 # #         .with_step(i)
                 # #         .with_timeline_output(filename).build())
                 # # profiler.profile_graph(options=opts)
+                #
+                # # Then Start advise.
+                # ALL_ADVICE = {
+                #     'ExpensiveOperationChecker': {},
+                #     'AcceleratorUtilizationChecker': {},
+                #     'JobChecker': {},  # Only available internally.
+                #     'OperationChecker': {},
+                # }
+                # profiler.advise(ALL_ADVICE)
 
-                # Then Start advise.
-                ALL_ADVICE = {
-                    'ExpensiveOperationChecker': {},
-                    'AcceleratorUtilizationChecker': {},
-                    'JobChecker': {},  # Only available internally.
-                    'OperationChecker': {},
-                }
-                profiler.advise(ALL_ADVICE)
-
-                # For one-shot API
-                tf.profiler.advise(
-                    session.graph, run_meta=run_meta)
+                # # For one-shot API
+                # tf.profiler.advise(
+                #     session.graph, run_meta=run_meta)
                 # if self.deleteme % 10 == 0:
                 #     raise
 
@@ -252,7 +251,7 @@ class ModelUpdater(object):
                 self._summary_writer.add_summary(merged_summary, global_step)
 
             # Reset accumulated values to zero ready for the next call.
-            session.run(self._graph.reset_ops, run_metadata=run_meta)
+            session.run(self._graph.reset_ops)#, run_metadata=run_meta)
 
 
             # Return the sum of the individual sentence losses.

@@ -218,9 +218,12 @@ class Transformer(object):
 
         if self.config.target_graph:
             edges = inputs.edge_times
-            labels = inputs.label_times
             edges = tf.sparse.transpose(edges, perm=[len(edges.shape) - 1] + list(range(len(edges.shape) - 1)))
-            labels = tf.sparse.transpose(labels, perm=[len(labels.shape) - 1] + list(range(len(labels.shape) - 1)))
+            if self.config.target_labels_num > 0:
+                labels = inputs.label_times
+                labels = tf.sparse.transpose(labels, perm=[len(labels.shape) - 1] + list(range(len(labels.shape) - 1)))
+            else:
+                labels = None
         else:
             edges = None
             labels = None
@@ -388,7 +391,7 @@ class TransformerDecoder(object):
         if self.config.target_graph:
             for layer_id in range(self.config.target_gcn_layers):
                 self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1, bias_labels_num=self.labels_num, edge_labels_num=3,
-                    activation=tf.nn.relu, use_bias=True, gate=True) #TODO use bias, use gate
+                    activation=tf.nn.relu, use_bias=self.config.target_labels_num > 0, gate=self.config.target_gcn_gating) #TODO use bias, use gate
         # Initialize layers
         with tf.compat.v1.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -433,7 +436,11 @@ class TransformerDecoder(object):
             if self.config.target_graph:
                 for layer_id in range(self.config.target_gcn_layers):
                     orig_input = dec_input
-                    inputs = [dec_input, edges, labels]
+                    if self.config.target_labels_num > 0:
+                        inputs = [dec_input, edges, labels]
+                    else:
+                        inputs = [dec_input, edges]
+
                     # print_ops = []
                     # print_ops.append(tf.compat.v1.Print([], [tf.shape(item) for item in inputs], "input shapes", 50, 100))
                     # print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output], "end_out shape", 50, 100))
@@ -465,7 +472,7 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output, _ = \
                     self.decoder_stack[layer_id]['cross_attn'].forward(
-                    dec_output, enc_output, cross_attn_mask) #TODO what happens with cross attention (currently untiled)
+                    dec_output, enc_output, cross_attn_mask)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 # with tf.control_dependencies(print_ops):

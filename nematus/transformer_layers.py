@@ -131,13 +131,13 @@ def get_all_times(timesteps, times, dtype=tf.float32, keep_original_values=False
     printops.append(
         tf.compat.v1.Print([], [tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(tensor).indices, tensor.indices], [tf.dtypes.bool], False)], "gate_indices kept?", 10, 300))
     with tf.control_dependencies(printops):
-        tensor = tf.sparse.reorder(tensor)
+        tensor = tf.sparse.reorder(tensor) #needs a for loop per original sentence to remove reorder
     return tensor
 
 def assert_ordered(indices, indices2): # TODO delete
     for ind, ind2 in zip(indices, indices2):
         if np.any(ind != ind2):
-            print("unordered:", ind, ind2)
+            print("unordered layers:", ind, ind2)
             print(list(indices)[:30])
             print(list(indices2)[:30])
             return False

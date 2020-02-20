@@ -148,13 +148,20 @@ class ModelAdapter:
                         edges, labels = tf.compat.v1.py_func(
                             self.extract_graph, [x], [tf.float32, tf.float32], stateful=False)
                         edges.set_shape([None, max_size, max_size, 3])
-                        labels.set_shape(
-                            [None, max_size, max_size, self.config.target_labels_num])
+                        edges = util.dense_to_sparse_tensor(edges)
                         # tf.ensure_shape(edges, [None, max_size, max_size, 3])
                         # tf.ensure_shape(
                         #     labels, [None, max_size, max_size, self.config.target_labels_num])
-                        edges = util.dense_to_sparse_tensor(edges)
-                        labels = util.dense_to_sparse_tensor(labels)
+
+                        if self.config.target_labels_num > 0:
+                            
+                            labels.set_shape(
+                                [None, max_size, max_size, self.config.target_labels_num])
+                            labels = util.dense_to_sparse_tensor(labels)
+                            inputs = [layer_output, edges, labels]
+                        else:
+                            inputs = [layer_output, edges]
+
                         # printops = []
                         # printops.append(tf.compat.v1.Print([], [tf.shape(edges), edges.indices, tf.ones_like(
                         #     edges.values)], "pythoned edges", 10, 50))
@@ -163,7 +170,6 @@ class ModelAdapter:
                         # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "last layer output" + str(
                         #     layer_id - 1) + " (is padded tp btch,120,emb?", 10, 50))
                         # with tf.control_dependencies(printops):
-                        inputs = [layer_output, edges, labels]
                         layer_output = self.model.dec.gcn_stack[
                             layer_id].apply(inputs)
                         layer_output += inputs[0]  # residual connection
@@ -298,8 +304,16 @@ class ModelAdapter:
         inv_dict = {v: k for k, v in label_dict.items()}
         # print("ids", ids[0,:])
         # print("ids_shape", ids.shape)
-        sents = [[inv_dict[idn] for idn in row if inv_dict[idn] not in ["<EOS>"]] # are allowed as words "<GO>", "<UNK>"
-                 for row in ids]  # TODO is this indeed the right format of all the inputs?
+        sents = []
+        for row in ids:
+            extracted = []
+            for idn in row:
+                if idn not in inv_dict:
+                    print("Label not understood, skipping", idn)
+                elif inv_dict[idn] not in ["<EOS>"]:
+                    extracted.append(inv_dict[idn])
+            sents.append(extracted) # are allowed as words "<GO>", "<UNK>"
+                   # TODO is this indeed the right format of all the inputs?
         # strs = [inv_dict[idn] for idn in ids if inv_dict[idn] not in
         # ["<EOS>", "<GO>", "<UNK>"]] #TODO is this indeed the right format of
         # all the inputs?
