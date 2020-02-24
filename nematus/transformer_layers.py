@@ -210,6 +210,8 @@ def get_positional_signal(time_steps, depth, float_dtype, min_timescale=1, max_t
     positions = tf.cast(tf.range(time_steps), float_dtype)
     scaled_time = tf.expand_dims(positions, 1) * tf.expand_dims(incremented_timescales, 0)
 
+    positional_signal = tf.concat([tf.sin(scaled_time), tf.cos(scaled_time)], axis=1)
+
     # Pad the signal tensor, if needed
     pad_size = depth % 2
     if pad_size != 0:
