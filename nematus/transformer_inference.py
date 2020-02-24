@@ -119,6 +119,7 @@ class ModelAdapter:
                     signal_slice = tf.pad(
                         signal_slice, [[0, 0], [0, emb_shape[1] - current_time_step], [0, 0]])
                 else:
+                    step_target_ids = tf.reshape(step_target_ids, [-1, 1])
                     target_embeddings = decoder._embed(step_target_ids)
                     signal_slice = positional_signal[
                         :, current_time_step - 1:current_time_step, :]

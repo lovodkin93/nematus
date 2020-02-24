@@ -135,12 +135,12 @@ class Transformer(object):
                                             FLOAT_DTYPE,
                                             time_major=False,
                                             name='inverse_loss_layer')
-                print_ops = []
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
-                with tf.control_dependencies(print_ops):
-                    inv_masked_loss, inv_sentence_loss, inv_batch_loss = \
-                        inverse_loss.forward(logits, self.target_ids_in, self.target_mask, self.training)
+                # print_ops = []
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
+                # with tf.control_dependencies(print_ops):
+                inv_masked_loss, inv_sentence_loss, inv_batch_loss = \
+                    inverse_loss.forward(logits, self.target_ids_in, self.target_mask, self.training)
                 masked_loss -= inv_masked_loss * inverse_rate
                 sentence_loss -= inv_sentence_loss * inverse_rate
                 batch_loss -= inv_batch_loss * inverse_rate
