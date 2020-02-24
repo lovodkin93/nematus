@@ -141,42 +141,25 @@ class ModelAdapter:
                 layer_output = target_embeddings
 
                 # add target graph created so far
-                if self.config.target_graph:
+                if self.config.target_graph and self.config.target_gcn_layers > 0:
+                    edges, labels = tf.compat.v1.py_func(
+                        self.extract_graph, [x], [tf.float32, tf.float32], stateful=False)
+                    edges.set_shape([None, max_size, max_size, 3])
+                    edges = util.dense_to_sparse_tensor(edges)
+                    if self.config.target_labels_num > 0:
+                        labels.set_shape(
+                            [None, max_size, max_size, self.config.target_labels_num])
+                        labels = util.dense_to_sparse_tensor(labels)
                     for layer_id in range(self.config.target_gcn_layers):
-                        # this or perhaps the more efficient tf based
-                        # .compat.v1.py_function?
-                        edges, labels = tf.compat.v1.py_func(
-                            self.extract_graph, [x], [tf.float32, tf.float32], stateful=False)
-                        edges.set_shape([None, max_size, max_size, 3])
-                        edges = util.dense_to_sparse_tensor(edges)
-                        # tf.ensure_shape(edges, [None, max_size, max_size, 3])
-                        # tf.ensure_shape(
-                        #     labels, [None, max_size, max_size, self.config.target_labels_num])
-
                         if self.config.target_labels_num > 0:
-                            
-                            labels.set_shape(
-                                [None, max_size, max_size, self.config.target_labels_num])
-                            labels = util.dense_to_sparse_tensor(labels)
                             inputs = [layer_output, edges, labels]
                         else:
                             inputs = [layer_output, edges]
-
-                        # printops = []
-                        # printops.append(tf.compat.v1.Print([], [tf.shape(edges), edges.indices, tf.ones_like(
-                        #     edges.values)], "pythoned edges", 10, 50))
-                        # printops.append(tf.compat.v1.Print([], [tf.shape(labels), labels.indices, tf.ones_like(
-                        #     labels.values)], "pythoned labels", 10, 50))
-                        # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "last layer output" + str(
-                        #     layer_id - 1) + " (is padded tp btch,120,emb?", 10, 50))
-                        # with tf.control_dependencies(printops):
                         layer_output = self.model.dec.gcn_stack[
                             layer_id].apply(inputs)
                         layer_output += inputs[0]  # residual connection
-                    # slice tensor to save space
-                    # printops = []
-                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "slicing gcn output", 10, 50))
-                    # with tf.control_dependencies(printops):
+
+                if self.config.target_graph:
                     layer_output = layer_output[:, :current_time_step, :]
                     # Propagate values through the decoder stack.
                 # NOTE: No self-attention mask is applied at decoding, as
@@ -185,31 +168,19 @@ class ModelAdapter:
                     layer = decoder.decoder_stack[layer_id]
                     mem_key = 'layer_{:d}'.format(layer_id)
                     if self.config.target_graph:
-                        layer_memories = memories[mem_key]
-                    else:
                         layer_memories = None
+                    else:
+                        layer_memories = memories[mem_key]
                     self_attn_mask = None
-                    # printops = []
-                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "infer self_attending"+ str(layer_id), 10, 50))
-                    # with tf.control_dependencies(printops):
                     layer_output, memories[mem_key] = \
                         layer['self_attn'].forward(
                             layer_output, None, self_attn_mask, layer_memories)
-                    # printops = []
-                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output), layer_output], "infer cross_attending" + str(layer_id), 10, 50))
-                    # with tf.control_dependencies(printops):
                     layer_output, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
                         encoder_output.cross_attn_mask)
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.
-                # printops = []
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(layer_output), layer_output[:, -1, :]],
-                #              "is :,-1,:, in layer_output the logits of the last step (or rather of eos?)", 10, 50))
-
-                # with tf.control_dependencies(printops):
                 # keep only the logits of the newly predicted word
                 dec_output = layer_output[:, -1, :]
                 # Project decoder stack outputs and apply the soft-max
@@ -300,8 +271,8 @@ class ModelAdapter:
     def extract_graph(self, ids):
         # if len(ids.shape) == 1:
         #     ids = [ids]
-        label_dict = self.model.target_labels_dict
-        inv_dict = {v: k for k, v in label_dict.items()}
+        tokens_dict = self.model.target_tokens
+        inv_dict = {v: k for k, v in tokens_dict.items()}
         # print("ids", ids[0,:])
         # print("ids_shape", ids.shape)
         sents = []
@@ -319,7 +290,7 @@ class ModelAdapter:
         # all the inputs?
         # print("first sent for graph", sents[0])
         converted = [convert_text_to_graph(
-            sent, self._config.maxlen + 1, label_dict, self.model.target_labels_num, graceful=True) for sent in sents]
+            sent, self._config.maxlen + 1, self.model.target_labels_dict, self.model.target_labels_num, graceful=True) for sent in sents]
         edge_times, label_times = zip(*converted)
         # if len(edge_times.shape) == 3:
         #     edge_times = np.expand_dims(edge_times, axis=0)

@@ -18,12 +18,48 @@ except (ModuleNotFoundError, ImportError) as e:
     import exception
 
 
+def parse_transitions(target_dict, splitted_action=False):
+    """
+    converts a dictionary to edge types and labels dictionaries.
+    :param target_dict: dictionary of string tokens to integers
+    :param splitted_action: whether format is edge+label+"@@|" or edge+"@@|" and split\separated label + "|@@"
+    :return: edge types dict, labels dict
+    The returned dictionaries have numbers from 0 to number of elements in dict as values.
+    Given the same edge types or labels the same dictionary will be made.
+    """
+    edge_end = "@@|"
+    label_start = "|@@"
+    if splitted_action:
+        target_actions = {key: val
+                          for key, val in target_dict.items() if edge_end in key}
+        target_actions = reset_dict_vals(target_actions)
+
+        target_labels = {key: val
+                         for key, val in target_dict.items() if label_start in key}
+        target_labels = reset_dict_vals(target_labels)
+    else:
+        target_actions = {key: val
+                          for key, val in target_dict.items() if edge_end in key}
+        actions = {key[0]: val
+                   for key, val in target_actions.items()}
+        actions = reset_dict_vals(actions)
+        target_actions = {key: actions[key[0]]
+                          for key in target_actions}
+
+        labels = {key[1:-len(edge_end)]: i
+                  for i, key in enumerate(target_actions)}
+        labels = reset_dict_vals(labels)
+        target_labels = {key: labels[key[1:-len(edge_end)]]
+                         for key in target_actions}
+    return target_actions, target_labels
+
+
 def reset_dict_vals(d):
     """
     :param d: dictionary
     :return: vals are consecutive numbers starting from 0, sorted by the order of the original vals
     """
-    return {key: i for i, (key, val) in enumerate(sorted(d.items(), key=lambda x:x[1]))}
+    return {key: i for i, (key, val) in enumerate(sorted(d.items(), key=lambda x: x[1]))}
 
 
 def reset_dict_indexes(d):

@@ -364,10 +364,16 @@ class ConfigSpecification:
             help='Number of gcn layers in target graphs, if target_graph is used.'))
 
         group.append(ParameterSpecification(
-            name='target_gcn_gating', default="True",
+            name='target_gcn_gating', default=True,
             visible_arg_names=['--no_gcn_gating'],
             action='store_false',
-            help='Whether to use gating in gcns.'))
+            help='If on, ignores gating in gcns.'))
+
+        group.append(ParameterSpecification(
+            name='split_transitions', default=False,
+            visible_arg_names=['--split_transitions'],
+            action='store_true',
+            help='If on, splits transitions to edge direction and label.'))
 
         # Add command-line parameters for 'network_rnn' group.
 
@@ -567,6 +573,12 @@ class ConfigSpecification:
             visible_arg_names=['--loss_function'],
             type=str, choices=['cross-entropy', 'per-token-cross-entropy', 'MRT'],
             help='loss function (default: %(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='inverse_loss', default=False,
+            visible_arg_names=['--inverse_loss'],
+            action="store_true",
+            help='Use a loss to avoid predicting the last word'))
 
         group.append(ParameterSpecification(
             name='decay_c', default=0.0,

@@ -47,12 +47,12 @@ class ModelInputs(object):
             if config.target_labels_num is None:
                 raise ValueError("target_labels_num is not defined, please figure it by the dictionary and supply it as a flag")
             elif config.target_labels_num > 0:
-                self.label_times = tf.compat.v1.sparse_placeholder(
+                self.labels = tf.compat.v1.sparse_placeholder(
                     name='labels',
                     shape=(seq_len, seq_len, config.target_labels_num, batch_size),
                     dtype=tf.float32)
 
-            self.edge_times = tf.compat.v1.sparse_placeholder(
+            self.edges = tf.compat.v1.sparse_placeholder(
                 name='edges',
                 shape=(seq_len, seq_len, edge_labels_num, batch_size),
                 dtype=tf.float32)

@@ -462,7 +462,40 @@ class PReLU(object):
         outputs = pos + self.slope * neg
         return outputs
 
-
+# class RepeatingLoss(object):
+#     """ Implements a loss for predicting repeated words"""
+#     def __init__(self, vocab_size, int_dtype, float_dtype, time_major, name=None):
+#         self.vocab_size = vocab_size
+#         self.int_dtype = int_dtype
+#         self.float_dtype = float_dtype
+#         self.time_dim = int(not time_major)  # i.e. 0 is time_major, 1 if batch_major
+#         self.name = name
+#
+#     def forward(self, logits, last_predictions, training):
+#         high_confidence = 1
+#         low_confidence = 0
+#         with tf.compat.v1.name_scope(self.name, values=[logits, last_predictions]):
+#             # Project and optionally smooth target token ids
+#             projected_targets = tf.one_hot(last_predictions,
+#                                            depth=self.vocab_size,
+#                                            on_value=high_confidence,
+#                                            off_value=low_confidence,
+#                                            dtype=self.float_dtype)
+#
+#             # Compute token-level loss
+#             flat_logits = tf.reshape(logits, [-1, self.vocab_size])
+#             flat_targets = tf.reshape(projected_targets, [-1, self.vocab_size])
+#             flat_loss = tf.nn.softmax_cross_entropy_with_logits(logits=flat_logits, labels=flat_targets)
+#             flat_normalized_loss = flat_loss - normalizing_factor
+#             # Compute sentence- and batch-level losses (i.e. mean token-loss per sentence/ batch)
+#             normalized_loss = tf.reshape(flat_normalized_loss, tf.shape(input=targets))
+#             masked_loss = normalized_loss * target_mask
+#
+#             sentence_lengths = tf.reduce_sum(input_tensor=target_mask, axis=self.time_dim, keepdims=False)
+#             sentence_loss = tf.math.divide(tf.reduce_sum(input_tensor=masked_loss, axis=self.time_dim, keepdims=False),
+#                                            sentence_lengths)
+#             batch_loss = tf.reduce_mean(input_tensor=sentence_loss, keepdims=False)
+#         return masked_loss, sentence_loss, batch_loss
 class MaskedCrossEntropy(object):
     """ Implements the cross-entropy loss with optionally applied label smoothing for better model generalization. """
     def __init__(self, vocab_size, label_smoothing_discount, int_dtype, float_dtype, time_major, name=None):

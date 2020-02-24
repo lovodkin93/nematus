@@ -16,10 +16,10 @@ if sys.version_info < (3, 6):
     ModuleNotFoundError = SystemError
 
 try:
-    from .util import load_dict
+    from .util import load_dict, parse_transitions
     from . import shuffle
 except (ModuleNotFoundError, ImportError) as e:
-    from util import load_dict
+    from util import load_dict, parse_transitions
     import shuffle
 
 def fopen(filename, mode='r'):
@@ -114,32 +114,8 @@ class TextIterator:
         self.target_graph = target_graph
         self.target_labels_num = target_labels_num
         if self.target_graph:
-            # TODO clean code when ready
-            edge_end = "@@|"
-            label_start = "|@@"
             self.splitted_action = splitted_action
-            if self.splitted_action:
-                self.target_actions = {key: val
-                                       for key, val in self.target_dict.items() if edge_end in key}
-                self.target_actions = reset_dict_vals(self.target_actions)
-
-                self.target_labels = {key: val
-                                      for key, val in self.target_dict.items() if label_start in key}
-                self.target_labels = reset_dict_vals(self.target_labels)
-            else:
-                self.target_actions = {key: val
-                                       for key, val in self.target_dict.items() if edge_end in key}
-                actions = {key[0]: val
-                           for key, val in self.target_actions.items()}
-                actions = reset_dict_vals(actions)
-                self.target_actions = {key: actions[key[0]]
-                                       for key in self.target_actions}
-
-                labels = {key[1:-len(edge_end)]: i
-                          for i, key in enumerate(self.target_actions)}
-                labels = reset_dict_vals(labels)
-                self.target_labels = {key: labels[key[1:-len(edge_end)]]
-                                       for key in self.target_actions}
+            self.target_actions, self.target_labels = parse_transitions(self.target_dict, self.splitted_action)
         else:
             self.target_labels = None
             self.target_actions = None
@@ -391,8 +367,10 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
         # last = tokens_stack
 
         if token.endswith(edge_end):
-            assert graceful or not label or not num_labels
+            assert graceful or not label or not num_labels, token + "," + " ".join(x_target)
             label = True
+            if split:
+                raise ValueError("why")
             if token.startswith(ConllSent.REDUCE_L):
                 min_len_cond = len(idxs_stack) > 1
                 if graceful and not min_len_cond:
@@ -461,7 +439,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
                     edge_times[token_id, dependent, right_edge] = token_id
 
         else:
-            assert graceful or not label or not num_labels
+            assert graceful or not label or not num_labels, token + "," + " ".join(x_target)
             label = False
             idxs_stack.append(token_id)
             tokens_stack.append(token)

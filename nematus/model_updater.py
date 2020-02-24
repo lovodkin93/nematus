@@ -185,10 +185,10 @@ class ModelUpdater(object):
                 feed_dict[self._replicas[j].inputs.training] = True
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]
-                    feed_dict[self._replicas[j].inputs.edge_times] = util.times_to_input(
-                        split_x_edges_time[i + j],timesteps)
+                    feed_dict[self._replicas[j].inputs.edges] = util.times_to_input(
+                        split_x_edges_time[i + j], timesteps)
                     if self._config.target_labels_num:
-                        feed_dict[self._replicas[j].inputs.label_times] = util.times_to_input(
+                        feed_dict[self._replicas[j].inputs.labels] = util.times_to_input(
                             split_x_labels_time[i + j], timesteps)
 
             if self._config.print_per_token_pro == False:

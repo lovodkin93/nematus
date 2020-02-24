@@ -25,7 +25,7 @@ try:
         get_positional_signal, \
         get_tensor_from_times, \
         get_all_times
-    from .util import load_dict
+    from .util import load_dict, parse_transitions
     from .tensorflow.python.ops.ragged.ragged_util import repeat
 except (ModuleNotFoundError, ImportError) as e:
     import model_inputs
@@ -40,7 +40,7 @@ except (ModuleNotFoundError, ImportError) as e:
         get_positional_signal, \
         get_tensor_from_times, \
         get_all_times
-    from util import load_dict
+    from util import load_dict, parse_transitions
     from tensorflow.python.ops.ragged.ragged_util import repeat
 
 INT_DTYPE = tf.int32
@@ -58,7 +58,10 @@ class Transformer(object):
         self.name = 'transformer'
         # load dictionary token-> token_id
         model_type = self.name
-        self.target_labels_dict = load_dict(config.target_dict, model_type) if config.target_graph else {}
+        self.target_labels_dict = None
+        if config.target_graph:
+            self.target_tokens = load_dict(config.target_dict, model_type)
+            _, self.target_labels_dict = parse_transitions(self.target_tokens, self.config.split_transitions)
 
         # Placeholders
         self.inputs = model_inputs.ModelInputs(config)
@@ -113,16 +116,36 @@ class Transformer(object):
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
             # with tf.control_dependencies(print_ops):
-            logits = logits * 1 #TODO delete
+            # logits = logits * 1 #TODO delete
             loss_layer = MaskedCrossEntropy(self.dec_vocab_size,
                                             self.config.label_smoothing,
                                             INT_DTYPE,
                                             FLOAT_DTYPE,
                                             time_major=False,
                                             name='loss_layer')
-            # Calculate loss
+
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
+
+            if self.config.inverse_loss:
+                inverse_rate = 0.5
+                inverse_loss = MaskedCrossEntropy(self.dec_vocab_size,
+                                            self.config.label_smoothing,
+                                            INT_DTYPE,
+                                            FLOAT_DTYPE,
+                                            time_major=False,
+                                            name='inverse_loss_layer')
+                print_ops = []
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
+                with tf.control_dependencies(print_ops):
+                    inv_masked_loss, inv_sentence_loss, inv_batch_loss = \
+                        inverse_loss.forward(logits, self.target_ids_in, self.target_mask, self.training)
+                masked_loss -= inv_masked_loss * inverse_rate
+                sentence_loss -= inv_sentence_loss * inverse_rate
+                batch_loss -= inv_batch_loss * inverse_rate
+
+            # Calculate loss
             if self.config.print_per_token_pro:
                 # e**(-(-log(probability))) =  probability
                 self._print_pro = tf.math.exp(-masked_loss)
@@ -217,10 +240,10 @@ class Transformer(object):
         target_mask = tf.transpose(a=inputs.y_mask, perm=[1, 0])
 
         if self.config.target_graph:
-            edges = inputs.edge_times
+            edges = inputs.edges
             edges = tf.sparse.transpose(edges, perm=[len(edges.shape) - 1] + list(range(len(edges.shape) - 1)))
             if self.config.target_labels_num > 0:
-                labels = inputs.label_times
+                labels = inputs.labels
                 labels = tf.sparse.transpose(labels, perm=[len(labels.shape) - 1] + list(range(len(labels.shape) - 1)))
             else:
                 labels = None
@@ -345,7 +368,7 @@ class TransformerDecoder(object):
                  softmax_projection_layer,
                  training,
                  name,
-                 from_rnn=False, transition_idx={}, labels_dict={}, labels_num=None):
+                 from_rnn=False, labels_dict={}, labels_num=None):
 
         # Set attributes
         self.config = config
@@ -355,7 +378,7 @@ class TransformerDecoder(object):
         self.name = name
         self.from_rnn = from_rnn
         self.labels_num = labels_num
-        self.labels_dict = labels_dict
+        # self.labels_dict = labels_dict
 
         # If the decoder is used in a hybrid system, adjust parameters
         # accordingly

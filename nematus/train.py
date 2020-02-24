@@ -78,7 +78,8 @@ def load_data(config):
         keep_data_in_memory=config.keep_train_set_in_memory,
         preprocess_script=config.preprocess_script,
         target_graph=config.target_graph,
-        target_labels_num=config.target_labels_num
+        target_labels_num=config.target_labels_num,
+        splitted_action=config.split_transitions
     )
 
     if config.valid_freq and config.valid_source_dataset and config.valid_target_dataset:
@@ -101,7 +102,8 @@ def load_data(config):
             token_batch_size=config.valid_token_batch_size,
             remove_parse=remove_parse,
             target_graph=config.target_graph,
-            target_labels_num=config.target_labels_num
+            target_labels_num=config.target_labels_num,
+            splitted_action=config.split_transitions
         )
     else:
         logging.info('no validation set loaded')
@@ -129,7 +131,6 @@ def train(config, sess):
             assert num_replicas == 1, "MRT mode does not support sentence-based split"
             assert (config.samplesN * config.maxlen <= config.token_batch_size), "need to make sure candidates of a sentence could be " \
                                                                                       "feed into the model"
-
 
 
     logging.info('Building model...')
@@ -356,7 +357,7 @@ def train(config, sess):
                         score = validate_with_script(sess, beam_search_sampler)
                         sess.run(fetches=smoothing.swap_ops)
                     else:
-                        logging.info("valisating without smoothing")
+                        logging.info("Validating without smoothing")
                         score = validate_with_script(sess, beam_search_sampler)
                     need_to_save = (score is not None and
                                     (len(progress.valid_script_scores) == 0 or
@@ -566,9 +567,10 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
                  model.inputs.y_mask: y_mask,
                  model.inputs.training: False}
         if config.target_graph:
-            timesteps = timesteps = y.shape[-1]
+            timesteps = y.shape[0]
             feeds[model.inputs.edges] = util.times_to_input(target_edges_time, timesteps)
-            feeds[model.inputs.labels] = util.times_to_input(target_labels_time, timesteps)
+            if config.target_labels_num:
+                feeds[model.inputs.labels] = util.times_to_input(target_labels_time, timesteps)
             # logging.info("fed ce_labels" + str(model.inputs.label_times.indices))
             # logging.info("fed ce_edges" + str(model.inputs.edge_times.indices))
         batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
