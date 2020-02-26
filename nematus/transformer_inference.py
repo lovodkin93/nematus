@@ -197,12 +197,15 @@ class ModelAdapter:
             state_size = self.config.state_size
             memories = {}
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
-                memories['layer_{:d}'.format(layer_id)] = {
+                if self.config.target_graph: # when target graph (conditional) no memories are kept
+                    layer_memories = {}
+                else:
+                    layer_memories = {
                     'keys': tf.tile(tf.zeros([batch_size, 0, state_size]),
                                     [beam_size, 1, 1]),
                     'values': tf.tile(tf.zeros([batch_size, 0, state_size]),
-                                      [beam_size, 1, 1])
-                }
+                                      [beam_size, 1, 1])}
+                memories['layer_{:d}'.format(layer_id)] = layer_memories
             return memories
 
     def get_memory_invariants(self, memories):
@@ -261,11 +264,11 @@ class ModelAdapter:
             for layer_key in memories.keys():
                 layer_dict = memories[layer_key]
                 gathered_memories[layer_key] = dict()
-
-                for attn_key in layer_dict.keys():
-                    attn_tensor = layer_dict[attn_key]
-                    gathered_memories[layer_key][attn_key] = \
-                        gather_attn(attn_tensor)
+                if layer_dict is not None: # when using self.config.target_graph memories are not used
+                    for attn_key in layer_dict.keys():
+                        attn_tensor = layer_dict[attn_key]
+                        gathered_memories[layer_key][attn_key] = \
+                            gather_attn(attn_tensor)
 
             return gathered_memories
 

@@ -86,15 +86,15 @@ def get_all_times(timesteps, times, dtype=tf.float32, keep_original_values=False
 
     indices_type = tf.int64
     indices = times.indices * tf.convert_to_tensor([[timesteps, 1, 1, 1]], dtype=indices_type)
-    printops = []
-    printops.append(
-        tf.compat.v1.Print([], [indices, times.indices], "times_indices multiplied", 10, 300))
-    printops.append(
-        tf.compat.v1.Print([], [
-            tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(times).indices, times.indices], [tf.dtypes.bool],
-                                 False)], "times_indices kept?", 10, 300))
-    with tf.control_dependencies(printops):
-        indices = repeat(indices, timesteps, 0)
+    # printops = []
+    # printops.append(
+    #     tf.compat.v1.Print([], [indices, times.indices], "times_indices multiplied", 10, 300))
+    # printops.append(
+    #     tf.compat.v1.Print([], [
+    #         tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(times).indices, times.indices], [tf.dtypes.bool],
+    #                              False)], "times_indices kept?", 10, 300))
+    # with tf.control_dependencies(printops):
+    indices = repeat(indices, timesteps, 0)
 
     # for each index replicate it (in order) [#inbatch,...] make [sent_len*#inbatch+0,...] ... [sent_len*#inbatch+sent_len - 1,...]
     cast_timesteps = tf.cast(timesteps, dtype=indices_type)
@@ -104,11 +104,11 @@ def get_all_times(timesteps, times, dtype=tf.float32, keep_original_values=False
     indices += indices_addition
 
 
-    printops = []
-    printops.append(
-        tf.compat.v1.Print([], [indices], "times_indices added", 10, 300))
-    with tf.control_dependencies(printops):
-        values = repeat(times.values, timesteps, 0)
+    # printops = []
+    # printops.append(
+    #     tf.compat.v1.Print([], [indices], "times_indices added", 10, 300))
+    # with tf.control_dependencies(printops):
+    values = repeat(times.values, timesteps, 0)
 
     shape = tf.concat([[times.dense_shape[0] * cast_timesteps], times.dense_shape[1:]], 0)
 
@@ -127,11 +127,11 @@ def get_all_times(timesteps, times, dtype=tf.float32, keep_original_values=False
 
     tensor = tf.SparseTensor(indices, values, shape)
 
-    printops = []
-    printops.append(
-        tf.compat.v1.Print([], [tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(tensor).indices, tensor.indices], [tf.dtypes.bool], False)], "gate_indices kept?", 10, 300))
-    with tf.control_dependencies(printops):
-        tensor = tf.sparse.reorder(tensor) #needs a for loop per original sentence to remove reorder
+    # printops = []
+    # printops.append(
+    #     tf.compat.v1.Print([], [tf.compat.v1.py_func(assert_ordered, [tf.sparse.reorder(tensor).indices, tensor.indices], [tf.dtypes.bool], False)], "gate_indices kept?", 10, 300))
+    # with tf.control_dependencies(printops):
+    tensor = tf.sparse.reorder(tensor) #needs a for loop per original sentence to remove reorder
     return tensor
 
 def assert_ordered(indices, indices2): # TODO delete
@@ -497,6 +497,14 @@ class PReLU(object):
 #                                            sentence_lengths)
 #             batch_loss = tf.reduce_mean(input_tensor=sentence_loss, keepdims=False)
 #         return masked_loss, sentence_loss, batch_loss
+class EdgeConstrain(object):
+    def forward(self, logits, tokens):
+        # Count if allowed to predict an edge
+        counts = tf.math.bincount(tokens)
+        edges_num = tf.gather(self.edge_positions)
+        edges_num = tf.reduce_sum(edges_num)
+        raise NotImplementedError
+    pass
 class MaskedCrossEntropy(object):
     """ Implements the cross-entropy loss with optionally applied label smoothing for better model generalization. """
     def __init__(self, vocab_size, label_smoothing_discount, int_dtype, float_dtype, time_major, name=None):

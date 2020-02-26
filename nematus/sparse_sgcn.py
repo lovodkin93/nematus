@@ -709,79 +709,6 @@ class GCN(base.Layer):
         # outputs = tf.sparse.reduce_sum(sparse_kernel, axis=-1)
         return outputs
 
-    def original_calculate_kernel(self):  # TODO delete
-
-        shape = tf.shape(self.x)
-
-        # printops = []
-        # printops.append(tf.compat.v1.Print([], [self.x], "x", 10, 50))
-        # printops.append(tf.compat.v1.Print([], [self.kernel], "kernel", 10, 50))
-        # printops.append(tf.compat.v1.Print([], [tf.shape(self.x), tf.shape(self.kernel)], "shape main_kernel", 10, 50))
-        # with tf.control_dependencies(printops):
-        xw = standard_ops.tensordot(
-            self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
-
-        # broadcast for each neighbor
-        xw = expand_dims(xw, 2)
-
-        if self.sparse_graph:
-            outputs = self.original_kernel_by_sparse(xw, self.labels)
-        else:
-            xw = tile(xw, [1, 1, shape[-2], 1, 1])
-            labeled_edges = expand_dims(self.labels, -2)
-            outputs = math_ops.reduce_sum(
-                math_ops.multiply(xw, labeled_edges), [-1])
-        return outputs
-    # def original_kernel_by_sparse(self, kernel, sparse): # TODO delete
-    #     """
-    #     multiplies a dense kernel tensor by a sparse tensor. kernel is of size [batch_size, max_len, 1, embedding, edge_type_num] and sparse [batch_size, max_len, max_len, edge_type_num=3]
-    #     returns the value after multiplication and after summing out last sparse dimension (labels)
-    #     :param kernel:
-    #     :param sparse:
-    #     :return:
-    #     """
-    #     kernel_shape = tf.shape(kernel, out_type=tf.int64)
-    #     embedding_size = kernel_shape[-1]
-    #     values_len = tf.shape(sparse.indices, out_type=tf.int64)[0]
-    #
-    #     # expand sparse
-    #     res_shape = kernel_shape
-    #
-    #     printops = []
-    #     printops.append(
-    #         tf.compat.v1.Print([], [kernel_shape, embedding_size, tf.shape(sparse), values_len], "kernel shapes", 10, 50))
-    #     with tf.control_dependencies(printops):
-    #         embed_dim = tf.sort(tf.tile(tf.range(embedding_size), [values_len]))  # 1 X embedding size tensor to add to indices (form: [1,1,1...2,2,2...])
-    #     embed_dim = tf.reshape(embed_dim, [-1,1]) # reshape for concat)
-    #     # embed_dim = tf.cast(embed_dim, tf.int64)
-    #
-    #     indices = sparse.indices
-    #     res_idx = tf.tile(indices, [embedding_size, 1]) # duplicate indices embedding size times
-    #
-    #     res_idx = tf.concat([res_idx, embed_dim], 1)
-    #     # printops = []
-    #     # printops.append(tf.compat.v1.Print([], [tf.shape(res_idx), res_idx], "res_idx", 10, 50))
-    #     # with tf.control_dependencies(printops):
-    #     ker_idx = tf.constant([1, 1, 0, 1, 1],
-    #                                    dtype=res_idx.dtype) * res_idx  # xw does not have dimension number 2 #TODO finish adding this
-    #     res_vals = tf.tile(sparse.values, [embedding_size])
-    #
-    #     # multiply by xw
-    #     res_vals = tf.gather_nd(kernel, ker_idx) * res_vals
-    #     sparse_kernel = tf.SparseTensor(res_idx, res_vals, res_shape)
-    #     # printops = []
-    #     # printops.append(tf.compat.v1.Print([], [tf.shape(sparse_kernel), tf.shape(res_idx), res_shape, tf.shape(res_vals)], "res_idx shapes", 10, 50))
-    #     # tmp_res_idx = res_idx[:,0] + res_idx[:,1] * 1000 + res_idx[:,2] * 1000 * 1000 + res_idx[:,3] * 1000 * 1000 * 1000
-    #     # printops.append(
-    #     #     tf.compat.v1.Print([],
-    #     #                        [tf.size(tf.unique(tmp_res_idx, out_idx=tf.dtypes.int64))], #tf.size(self.tf_unique_2d(tmp_res_idx*[1,1,1,1,0]))],
-    #     #                        "kernel_indices kept?", 10, 300))
-    #     # with tf.control_dependencies(printops):
-    #     # printops.append(tf.compat.v1.Print([], [res_idx], "res_idx", 10, 50000))
-    #     # with tf.control_dependencies(printops):
-    #     outputs = tf.sparse.reduce_sum(sparse_kernel, axis=-1)
-    #     return outputs
-
     def calculate_kernel(self):
 
         shape = tf.shape(self.x)
@@ -913,6 +840,8 @@ class GCN(base.Layer):
                     # tf.cast(tf.shape(self.labels), tf.int64)
                     outputs = tf.SparseTensor(
                         outputs.indices, gated_vals, outputs.dense_shape)
+                    print("outputs.dense_shape",outputs.get_shape().as_list())
+
                     # printops = []
                     # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.shape(outputs.indices), outputs.indices, outputs.values], "towards reduce_sum", 10, 50))
                     # with tf.control_dependencies(printops):
@@ -925,11 +854,14 @@ class GCN(base.Layer):
             if self.sparse_graph:
                 if self.gate or not self.bias:
                     outputs = tf.compat.v1.sparse.to_dense(outputs)
+                    print("todense",outputs.get_shape().as_list())
                 # printops = []
                 # printops.append(tf.compat.v1.Print([], [out_shape], "towards rehsaping to out_shape", 10, 50))
                 # printops.append(tf.compat.v1.Print([], [tf.shape(outputs), tf.math.count_nonzero(outputs)], "towards rehsaping outputs", 10, 50))
                 # with tf.control_dependencies(printops):
                 outputs = tf.reduce_sum(outputs, axis=-2)  # for speed optimization on gpu
+                print("reducsum", outputs.get_shape().as_list())
+                outputs.set_shape([None, self.vert_num, self.embed_size])
                 # outputs = tf.sparse.reduce_sum(outputs, axis=-2) # for memory optimization
             else:
                 outputs = math_ops.reduce_sum(outputs, [-2])

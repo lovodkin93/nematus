@@ -2,11 +2,8 @@
 
 import sys
 import tensorflow as tf
-import numpy
-from docutils.nodes import target
 
 from sparse_sgcn import gcn, GCN
-from sgcn import gcn as gcn_dense
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
@@ -19,12 +16,13 @@ try:
     from . import tf_utils
     from .transformer_blocks import AttentionBlock, FFNBlock
     from .transformer_layers import \
-        EmbeddingLayer, \
-        MaskedCrossEntropy, \
-        get_right_context_mask, \
-        get_positional_signal, \
-        get_tensor_from_times, \
-        get_all_times
+    EmbeddingLayer, \
+    MaskedCrossEntropy, \
+    get_right_context_mask, \
+    get_positional_signal, \
+    get_tensor_from_times, \
+    get_all_times, \
+    EdgeConstrain
     from .util import load_dict, parse_transitions
     from .tensorflow.python.ops.ragged.ragged_util import repeat
 except (ModuleNotFoundError, ImportError) as e:
@@ -39,7 +37,8 @@ except (ModuleNotFoundError, ImportError) as e:
         get_right_context_mask, \
         get_positional_signal, \
         get_tensor_from_times, \
-        get_all_times
+        get_all_times, \
+        EdgeConstrain
     from util import load_dict, parse_transitions
     from tensorflow.python.ops.ragged.ragged_util import repeat
 
@@ -126,7 +125,19 @@ class Transformer(object):
 
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
-
+            if self.config.edge_num_constrain > 0:
+                if self.config.split_transitions:
+                    raise NotImplementedError()
+                # print_ops = []
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
+                # with tf.control_dependencies(print_ops):
+                constrain = EdgeConstrain(self.dec_vocab_size, self.target_labels_dict, name='edge_constrain_layer')
+                masked_cons, sentence_cons, batch_cons = \
+                    constrain.forward(logits, self.target_ids_in, self.target_mask, self.training)
+                masked_loss -= masked_cons * self.config.edge_num_constrain
+                sentence_loss -= sentence_cons * self.config.edge_num_constrain
+                batch_loss -= batch_cons * self.config.edge_num_constrain
             if self.config.inverse_loss:
                 inverse_rate = 0.5
                 inverse_loss = MaskedCrossEntropy(self.dec_vocab_size,
@@ -135,10 +146,7 @@ class Transformer(object):
                                             FLOAT_DTYPE,
                                             time_major=False,
                                             name='inverse_loss_layer')
-                # print_ops = []
-                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
-                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
-                # with tf.control_dependencies(print_ops):
+
                 inv_masked_loss, inv_sentence_loss, inv_batch_loss = \
                     inverse_loss.forward(logits, self.target_ids_in, self.target_mask, self.training)
                 masked_loss -= inv_masked_loss * inverse_rate
@@ -453,7 +461,6 @@ class TransformerDecoder(object):
          performs decoding in parallel at training time. """
         def _decode_all(target_embeddings):
             """ Decodes the encoder-generated representations into target-side logits in parallel. """
-            #TODO embedd per token and perhaps parallel the second to last decoder blocks
             dec_input = target_embeddings
             # add gcn layers
             if self.config.target_graph:
@@ -464,14 +471,16 @@ class TransformerDecoder(object):
                     else:
                         inputs = [dec_input, edges]
 
-                    # print_ops = []
-                    # print_ops.append(tf.compat.v1.Print([], [tf.shape(item) for item in inputs], "input shapes", 50, 100))
-                    # print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output], "end_out shape", 50, 100))
-                    # with tf.control_dependencies(print_ops):
                     dec_input = self.gcn_stack[layer_id].apply(inputs)
                     dec_input += orig_input # residual connection
-                dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
+                print_ops = []
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input", 50, 100))
+                print_ops.append(tf.compat.v1.Print([], [timesteps], "timesteps", 50, 100))
+                with tf.control_dependencies(print_ops):
+                    dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
+                # make sure slicing works (for enc_output too)
 
+            # TODO make sure timesteps is not repeated when conditionally predicting
             # Propagate inputs through the encoder stack
             dec_output = dec_input
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -488,12 +497,12 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output, _ = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None, self_attn_mask) # avoid attending sentences with no words and words after the sentence (zeros)
-                # print_ops = []
-                # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input shape", 50, 100))
-                # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "after block" + str(layer_id), 50, 100))
-                # print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask], "cross attention" + str(layer_id), 50, 100))
-                # with tf.control_dependencies(print_ops):
-                dec_output, _ = \
+                print_ops = []
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output], "dec_output shape"+ str(layer_id), 50, 100))
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output)], "enc_output after block" + str(layer_id), 50, 100))
+                print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:10],cross_attn_mask[1,:10],cross_attn_mask[-2,:10],cross_attn_mask[-1,:10]], "cross attention" + str(layer_id), 50, 100))
+                with tf.control_dependencies(print_ops):
+                    dec_output, _ = \
                     self.decoder_stack[layer_id]['cross_attn'].forward(
                     dec_output, enc_output, cross_attn_mask)
                 # print_ops = []
@@ -566,6 +575,8 @@ class TransformerDecoder(object):
                                                       self.config.embedding_size,
                                                       FLOAT_DTYPE)
             if self.config.target_graph:
+                cross_attn_mask = repeat(cross_attn_mask, timesteps, 0)
+                enc_output = repeat(enc_output, timesteps, 0)
                 # self_attn_mask = None
                 # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
                 self_attn_mask = tf.tile(self_attn_mask, [1, 1, batch_size, 1])
@@ -585,14 +596,16 @@ class TransformerDecoder(object):
                 # edges = tf.cast(edge_times, dtype=tf.float32)
                 # labels = tf.cast(labels_times, dtype=tf.float32)
                 # printops = []
-                # # printops.append(
-                # #     tf.compat.v1.Print([], [tf.shape(try_all_times), try_all_times.indices, try_all_times.values], "get_all_times_check", 300, 50))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:,:,:,:20]], "masked attention", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[:,:,:,:10]], "cross_attn_mask", 300, 50))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(edges), edges.indices, edges.values], "masked edges", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:,:,:,:10]], "masked attention", 300, 50))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(labels), labels.indices, labels.values], "masked labels", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(get_right_context_mask(timesteps)), get_right_context_mask(timesteps)[:,:,:,:10]], "unchanged masked attention", 300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(diagonals_mask), diagonals_mask[:,:10]], "diagonal masks (for targets)", 300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[:,:10]], "target_ids in", 300, 50))
                 # with tf.control_dependencies(printops):
                 logits = _decoding_function()
                 diag = tf.range(timesteps)
@@ -606,8 +619,33 @@ class TransformerDecoder(object):
                 indices = tf.concat([diag, vocab_locs], 1)
                 indices = tf.tile(indices, [batch_size, 1])
 
-
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(logits), logits[...,:10]], "logits ungathered",
+                #                        300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(indices)],
+                #                        "indices shape", 300, 100))
+                # printops.append(
+                #     tf.compat.v1.Print([], [batch_size, timesteps, self.config.target_vocab_size], "logits reshaped to",
+                #                        300, 50))
+                # with tf.control_dependencies(printops):
                 logits = tf.gather_nd(logits, indices)
+
+                # printops = []
+                # vocab_size = self.config.target_vocab_size
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(indices), indices[0], indices[vocab_size],
+                #                         indices[vocab_size*2],indices[vocab_size*3],indices[vocab_size*4]],
+                                       # "indices top gather logits (every vocab size)", 300, 100))
+                # tmp = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(tmp), tmp[...,:10]],
+                #                        "logits", 300, 50))
+                # with tf.control_dependencies(printops):
                 logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
             else:
                 logits = _decoding_function()

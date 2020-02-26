@@ -581,6 +581,12 @@ class ConfigSpecification:
             help='Use a loss to avoid predicting the last word'))
 
         group.append(ParameterSpecification(
+            name='edge_num_constrain', default=0.0,
+            visible_arg_names=['--edge_num_constrain'],
+            type=float, metavar='FLOAT',
+            help='Penalty for creating too many edges (default: %(default)s)'))
+
+        group.append(ParameterSpecification(
             name='decay_c', default=0.0,
             visible_arg_names=['--decay_c'],
             type=float, metavar='FLOAT',
