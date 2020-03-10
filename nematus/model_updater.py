@@ -74,24 +74,11 @@ class ModelUpdater(object):
                     beam_size=config.samplesN)
         # self.deleteme = 0
 
+    def are_labels_legal(self, y):
+        raise NotImplementedError
 
-    def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
+    def split_per_gpu(self, session, x, x_mask, y, y_mask, num_to_target, x_edges_time=None,
                x_labels_time=None):
-        """Updates the model for a single minibatch.
-
-        Args:
-            x: Numpy array with shape (factors, seq_len, batch_size)
-            x_mask: Numpy array with shape (seq_len, batch_size)
-            y: Numpy array with shape (seq_len, batch_size)
-            y_mask: Numpy array with shape (seq_len, batch_size)
-            num_to_target: dictionary used for MRT training
-            write_summary: Boolean
-
-        Returns:
-            The sum of the individual sentence losses. The loss for a sentence
-            is the sentence-level or token-level cross entropy, optionally with
-            L2 or MAP-L2 regularization.
-        """
 
         # Split the minibatch into sub-batches. The number of sub-batches is
         # determined based on either the per-device size limit, if set, or on
@@ -100,7 +87,8 @@ class ModelUpdater(object):
         # If necessary, dummy sub-batches are added to get a multiple of the
         # number of replicas, since each replica has to receive some input (the
         # dummy sub-batches will have a weight of zero).
-
+        split_score = None
+        split_index = None
         index = None
         if self._config.loss_function == 'MRT':
             # Generate candidate sentences (sampling) based on source sentences in each minibatch
@@ -142,11 +130,6 @@ class ModelUpdater(object):
                 self._split_and_pad_minibatch(
                     x, x_mask, y, y_mask, x_edges_time, x_labels_time, start_points)
 
-        # Normalize the weights so that _ModelUpdateGraph can just sum the
-        # weighted gradients from each sub-batch (without needing a
-        # subsequent division step).
-        normalized_weights = [w / sum(weights) for w in weights]
-
         # Scale the weights so that short minibatches (e.g. at the end of
         # maxibatches) contribute less.
         if self._config.token_batch_size == 0:
@@ -156,35 +139,106 @@ class ModelUpdater(object):
             # Actual batch size / Max batch size, in tokens
             scaling_factor = (
                 x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights, split_score, split_index, scaling_factor
 
+    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None,x_labels_time=None):
+        return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, apply_grads=False)
+        # split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, normalized_weights, scaling_factor = self.split_per_gpu(
+        #     session, x, x_mask, y, y_mask, {}, x_edges_time,
+        #     x_labels_time)
+        #
+        # for i in range(0, len(split_x), len(self._replicas)):
+        #     feed_dict = {}
+        #     feed_dict[self._graph.scaling_factor] = scaling_factor
+        #     for j in range(len(self._replicas)):
+        #         feed_dict[self._graph.replica_weights[
+        #             j]] = normalized_weights[i + j]
+        #         feed_dict[self._replicas[j].inputs.x] = split_x[i + j]
+        #         feed_dict[self._replicas[
+        #             j].inputs.x_mask] = split_x_mask[i + j]
+        #         feed_dict[self._replicas[j].inputs.y] = split_y[i + j]
+        #         feed_dict[self._replicas[
+        #             j].inputs.y_mask] = split_y_mask[i + j]
+        #         if self._config.loss_function == 'MRT':
+        #             # convert evaluation score of each candidates into tensor
+        #             # for subsequent expected risk calculations
+        #             feed_dict[self._replicas[
+        #                 j].inputs.scores] = split_score[i + j]
+        #             # also convey information of starting point of each source
+        #             # sentences to later calculation
+        #             feed_dict[self._replicas[
+        #                 j].inputs.index] = split_index[i + j]
+        #         feed_dict[self._replicas[j].inputs.training] = True
+        #         if self._config.target_graph:
+        #             timesteps = split_y[i + j].shape[0]
+        #             if self._config.edge_num_constrain > 0:
+        #                 feed_dict[self._replicas[j].inputs.legal_edge] = self.are_edges_legal(split_y[i + j])
+        #             feed_dict[self._replicas[j].inputs.edges] = util.times_to_input(
+        #                 split_x_edges_time[i + j], timesteps)
+        #             if self._config.target_labels_num:
+        #                 feed_dict[self._replicas[j].inputs.labels] = util.times_to_input(
+        #                     split_x_labels_time[i + j], timesteps)
+        #
+        #     run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
+        #     session.run([self.model.loss_per_sentence], feed_dict=feed_dict, options=run_options)
+
+    def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
+               x_labels_time=None, apply_grads=True):
+        """Updates the model for a single minibatch.
+
+        Args:
+            x: Numpy array with shape (factors, seq_len, batch_size)
+            x_mask: Numpy array with shape (seq_len, batch_size)
+            y: Numpy array with shape (seq_len, batch_size)
+            y_mask: Numpy array with shape (seq_len, batch_size)
+            num_to_target: dictionary used for MRT training
+            write_summary: Boolean
+
+        Returns:
+            The sum of the individual sentence losses. The loss for a sentence
+            is the sentence-level or token-level cross entropy, optionally with
+            L2 or MAP-L2 regularization.
+        """
+
+        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights, split_score, split_index, scaling_factor = self.split_per_gpu(session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
+               x_labels_time)
+
+        if apply_grads:
+            # Normalize the weights so that _ModelUpdateGraph can just sum the
+            # weighted gradients from each sub-batch (without needing a
+            # subsequent division step).
+            normalized_weights = [w / sum(weights) for w in weights]
+        else:
+            normalized_weights = weights
         # Accumulate gradients.
         # the list to store the per-token-probability if required
         print_pro = []
         # profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
+        losses = []
         for i in range(0, len(split_x), len(self._replicas)):
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
+            print("scaling_factor", scaling_factor)
             for j in range(len(self._replicas)):
-                feed_dict[self._graph.replica_weights[
-                    j]] = normalized_weights[i + j]
+                if apply_grads:
+                    print("normalized_weights[i + j]", normalized_weights[i + j])
+                    feed_dict[self._graph.replica_weights[j]] = normalized_weights[i + j]
                 feed_dict[self._replicas[j].inputs.x] = split_x[i + j]
-                feed_dict[self._replicas[
-                    j].inputs.x_mask] = split_x_mask[i + j]
+                feed_dict[self._replicas[j].inputs.x_mask] = split_x_mask[i + j]
                 feed_dict[self._replicas[j].inputs.y] = split_y[i + j]
-                feed_dict[self._replicas[
-                    j].inputs.y_mask] = split_y_mask[i + j]
+                feed_dict[self._replicas[j].inputs.y_mask] = split_y_mask[i + j]
                 if self._config.loss_function == 'MRT':
                     # convert evaluation score of each candidates into tensor
                     # for subsequent expected risk calculations
-                    feed_dict[self._replicas[
-                        j].inputs.scores] = split_score[i + j]
+                    feed_dict[self._replicas[j].inputs.scores] = split_score[i + j]
                     # also convey information of starting point of each source
                     # sentences to later calculation
-                    feed_dict[self._replicas[
-                        j].inputs.index] = split_index[i + j]
-                feed_dict[self._replicas[j].inputs.training] = True
+                    feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
+                feed_dict[self._replicas[j].inputs.training] = apply_grads
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]
+                    if self._config.edge_num_constrain > 0:
+                        feed_dict[self._replicas[j].inputs.legal_edge] = self.are_edges_legal(split_y[i + j])
                     feed_dict[self._replicas[j].inputs.edges] = util.times_to_input(
                         split_x_edges_time[i + j], timesteps)
                     if self._config.target_labels_num:
@@ -192,10 +246,17 @@ class ModelUpdater(object):
                             split_x_labels_time[i + j], timesteps)
 
             if self._config.print_per_token_pro == False:
-
+                if apply_grads:
+                    ops = self._graph.accum_ops
+                else:
+                    ops = self._graph._per_sent_losses
+                    print("new op", ops)
                 # run_meta = tf.compat.v1.RunMetadata()
-                # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
-                session.run([self._graph.accum_ops], feed_dict=feed_dict) #, options=run_options)#, run_metadata=run_meta)
+                run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
+                res = session.run([ops], feed_dict=feed_dict, options=run_options)#, run_metadata=run_meta)
+                if not apply_grads:
+                    losses += res
+                    print("accumulating losses per sentence", losses)
                 # profiler.add_step(self.deleteme, run_meta)  # TODO delete
                 # self.deleteme += 1
                 #
@@ -234,24 +295,27 @@ class ModelUpdater(object):
                 tmp = session.run([self._graph.accum_ops], feed_dict=feed_dict)
                 for i in range(len(tmp[0])):
                     print_pro.append(tmp[0][i].tolist())
+        if not apply_grads:
+            print("losses before returning", losses)
+            return np.array(losses)
 
+        elif self._config.print_per_token_pro == False:
+            fetches = self._graph._accumulated_loss
 
-        if self._config.print_per_token_pro == False:
             # Apply the gradients (and optionally write the summary).
+            fetches = self._graph.apply_ops
             if not write_summary:
-                fetches = self._graph.apply_ops
-
                 global_step, apply_grads, mean_loss_per_sent = session.run(
                     fetches)
             else:
                 assert self._summary_writer is not None
-                fetches = self._graph.apply_ops + self._graph.summary_ops
+                fetches = fetches + self._graph.summary_ops
                 global_step, apply_grads, mean_loss_per_sent, merged_summary = \
                     session.run(fetches)
                 self._summary_writer.add_summary(merged_summary, global_step)
 
             # Reset accumulated values to zero ready for the next call.
-            session.run(self._graph.reset_ops)#, run_metadata=run_meta)
+            session.run(self._graph.reset_ops)
 
 
             # Return the sum of the individual sentence losses.
@@ -460,8 +524,7 @@ class ModelUpdater(object):
         # sub-batch.
         # TODO: loss is calculated according to target side, hence here should
         # be weighted by target tokens only.
-        weights = [numpy.sum(t)
-                   for t in split_y_mask]
+        weights = [numpy.sum(t) for t in split_y_mask]
 
         # Pad the split lists with dummy arrays so that the total number of
         # sub-batches is a multiple of the number of replicas.
@@ -646,6 +709,7 @@ class _ModelUpdateGraph(object):
                 trainable=False)
             self._accumulated_gradients[v.name] = g
 
+        self._per_sent_losses = [self._replicas[i].loss_per_sentence for i in range(len(self._replicas))]
         self._define_accum_ops()
         self._define_apply_ops()
         self._define_reset_ops()

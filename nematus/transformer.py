@@ -45,6 +45,9 @@ except (ModuleNotFoundError, ImportError) as e:
 INT_DTYPE = tf.int32
 FLOAT_DTYPE = tf.float32
 
+print("Delete squash")
+SQUASH = not True
+
 class Transformer(object):
     """ The main transformer model class. """
 
@@ -93,7 +96,6 @@ class Transformer(object):
             self.dec_vocab_size = self._build_graph()
 
         # Build the training-specific parts of the graph.
-
         with tf.compat.v1.name_scope('{:s}_loss'.format(self.name)):
             # Encode source sequences
             with tf.compat.v1.name_scope('{:s}_encode'.format(self.name)):
@@ -104,18 +106,35 @@ class Transformer(object):
                 logits = self.dec.decode_at_train(self.target_ids_in,
                                                   enc_output,
                                                   cross_attn_mask, self.edges, self.labels)
-                # logits = self.dec.decode_at_train(self.target_ids_in,
-                #                                   enc_output,
-                #                                   cross_attn_mask, self.edge_labels, self.bias_labels, self.general_edge_mask, self.general_bias_mask)
+
+            original_mask_shape = tf.shape(self.target_mask)
+            if not SQUASH and self.config.target_graph:
+                num_sentences = original_mask_shape[0]
+                timesteps = original_mask_shape[1]
+                self.target_ids_out = repeat(self.target_ids_out, timesteps, 0)
+
+                # print_ops = []
+                # print_ops.append(
+                #     tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50,
+                #                        200))
+                # print_ops.append(
+                #     tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask],
+                #                        "target_mask for loss", 50, 200))
+                # with tf.control_dependencies(print_ops):
+                self.target_mask = tf.minimum(repeat(self.target_mask, timesteps, 0), tf.tile(tf.eye(timesteps), [num_sentences, 1]))
+
+            print_ops = []
             # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
             # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_out)], "target_ids_out", 3)
-            # Instantiate loss layer(s)
-            # print_ops = []
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,0]], "logits shapes", 50, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 200))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask], "target_mask for loss", 50, 200))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), self.target_mask[...,-3:]], "target_mask ends for loss", 50, 200))
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
-            # with tf.control_dependencies(print_ops):
-            # logits = logits * 1 #TODO delete
+            with tf.control_dependencies(print_ops):
+                logits = logits * 1 #TODO delete
+
+            # Instantiate loss layer(s)
             loss_layer = MaskedCrossEntropy(self.dec_vocab_size,
                                             self.config.label_smoothing,
                                             INT_DTYPE,
@@ -123,6 +142,7 @@ class Transformer(object):
                                             time_major=False,
                                             name='loss_layer')
 
+            print("Try loss with repeated (masked) target ids out")
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
             if self.config.edge_num_constrain > 0:
@@ -132,7 +152,7 @@ class Transformer(object):
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 100))
                 # with tf.control_dependencies(print_ops):
-                constrain = EdgeConstrain(self.dec_vocab_size, self.target_labels_dict, name='edge_constrain_layer')
+                constrain = EdgeConstrain(self.dec_vocab_size, self.legal_edge, name='edge_constrain_layer')
                 masked_cons, sentence_cons, batch_cons = \
                     constrain.forward(logits, self.target_ids_in, self.target_mask, self.training)
                 masked_loss -= masked_cons * self.config.edge_num_constrain
@@ -141,11 +161,11 @@ class Transformer(object):
             if self.config.inverse_loss:
                 inverse_rate = 0.5
                 inverse_loss = MaskedCrossEntropy(self.dec_vocab_size,
-                                            self.config.label_smoothing,
-                                            INT_DTYPE,
-                                            FLOAT_DTYPE,
-                                            time_major=False,
-                                            name='inverse_loss_layer')
+                                                  self.config.label_smoothing,
+                                                  INT_DTYPE,
+                                                  FLOAT_DTYPE,
+                                                  time_major=False,
+                                                  name='inverse_loss_layer')
 
                 inv_masked_loss, inv_sentence_loss, inv_batch_loss = \
                     inverse_loss.forward(logits, self.target_ids_in, self.target_mask, self.training)
@@ -159,8 +179,17 @@ class Transformer(object):
                 self._print_pro = tf.math.exp(-masked_loss)
 
             sent_lens = tf.reduce_sum(input_tensor=self.target_mask, axis=1, keepdims=False)
+
+            print_ops = []
             self._loss_per_sentence = sentence_loss * sent_lens
             self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(masked_loss), masked_loss], "masked_loss", 100, 200))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(self._loss), self._loss], "self._loss", 100, 200))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(sentence_loss), sentence_loss], "sentence_loss", 100, 200))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(sent_lens), sent_lens], "sent_lens", 100, 200))
+            with tf.control_dependencies(print_ops):
+                self._loss_per_sentence = sentence_loss * sent_lens
+                self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
 
             # calculate expected risk
             if self.config.loss_function == 'MRT':
@@ -472,12 +501,12 @@ class TransformerDecoder(object):
                         inputs = [dec_input, edges]
 
                     dec_input = self.gcn_stack[layer_id].apply(inputs)
-                    dec_input += orig_input # residual connection
-                print_ops = []
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input", 50, 100))
-                print_ops.append(tf.compat.v1.Print([], [timesteps], "timesteps", 50, 100))
-                with tf.control_dependencies(print_ops):
-                    dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
+                #     dec_input += orig_input   # residual connection
+                # print_ops = []
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input", 50, 100))
+                # print_ops.append(tf.compat.v1.Print([], [timesteps], "timesteps", 50, 100))
+                # with tf.control_dependencies(print_ops):
+                dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
                 # make sure slicing works (for enc_output too)
 
             # TODO make sure timesteps is not repeated when conditionally predicting
@@ -497,14 +526,15 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output, _ = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None, self_attn_mask) # avoid attending sentences with no words and words after the sentence (zeros)
-                print_ops = []
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output], "dec_output shape"+ str(layer_id), 50, 100))
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output)], "enc_output after block" + str(layer_id), 50, 100))
-                print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:10],cross_attn_mask[1,:10],cross_attn_mask[-2,:10],cross_attn_mask[-1,:10]], "cross attention" + str(layer_id), 50, 100))
-                with tf.control_dependencies(print_ops):
-                    dec_output, _ = \
-                    self.decoder_stack[layer_id]['cross_attn'].forward(
-                    dec_output, enc_output, cross_attn_mask)
+                # print_ops = []
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output[0,:,-5:]], "part of dec_output "+ str(layer_id), 50, 300))
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,:,-5:]], "part of enc_output "+ str(layer_id), 50, 300))
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), tf.shape(enc_output), tf.shape(cross_attn_mask)], "dec_output, enc_output, cross_mask cross attention input" + str(layer_id), 50, 100))
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:10],cross_attn_mask[1,:10],cross_attn_mask[-2,:10],cross_attn_mask[-1,:10]], "cross attention" + str(layer_id), 50, 100))
+                # with tf.control_dependencies(print_ops):
+                dec_output, _ = \
+                self.decoder_stack[layer_id]['cross_attn'].forward(
+                dec_output, enc_output, cross_attn_mask)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 # with tf.control_dependencies(print_ops):
@@ -560,6 +590,13 @@ class TransformerDecoder(object):
                 enc_output = tf.transpose(a=enc_output, perm=[1, 0, 2])
                 cross_attn_mask = tf.transpose(a=cross_attn_mask, perm=[3, 1, 2, 0])
 
+
+            # printops = []
+            # printops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output], "enc_output unchanged", 300, 50))
+            # printops.append(
+            #     tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0, ...],
+            #                             enc_output[1, ...]], "enc_output", 300, 50))
+            # with tf.control_dependencies(printops):
             target_shape = tf.shape(target_ids)
             batch_size = target_shape[0]
             timesteps = target_shape[-1]
@@ -579,8 +616,17 @@ class TransformerDecoder(object):
                 enc_output = repeat(enc_output, timesteps, 0)
                 # self_attn_mask = None
                 # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
+
+                # with tf.control_dependencies(printops):
+                if self.config.sequential:
+                    print("sequential")
+                    unconditional_attn_mask = tf.tile(self_attn_mask, [batch_size * timesteps, 1, 1, 1])
                 self_attn_mask = tf.tile(self_attn_mask, [1, 1, batch_size, 1])
                 self_attn_mask = tf.transpose(self_attn_mask, [2, 1, 0, 3])
+                # print("BACKWARD ATTENTION ONLY ATTENTION")
+                if self.config.sequential:
+                    self_attn_mask = tf.minimum(self_attn_mask, unconditional_attn_mask)
+
                 # self_attn_mask = tf.reshape(self_attn_mask, [batch_size  * timesteps, -1, timesteps, 1])
                 target_ids = repeat(target_ids, timesteps, 0)
                 diagonals_mask = tf.ones([timesteps, timesteps], dtype=target_ids.dtype)
@@ -595,58 +641,88 @@ class TransformerDecoder(object):
 
                 # edges = tf.cast(edge_times, dtype=tf.float32)
                 # labels = tf.cast(labels_times, dtype=tf.float32)
-                # printops = []
+                printops = []
                 # printops.append(
                 #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[:,:,:,:10]], "cross_attn_mask", 300, 50))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:,:,:,:10]], "masked attention", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(unconditional_attn_mask), unconditional_attn_mask[:, :, :5, :5]], "unconditional_attn_mask",
+                #                        300, 1000))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(get_right_context_mask(timesteps)), get_right_context_mask(timesteps)[:,:,:,:10]], "unchanged masked attention", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:, :, :5, :5]], "masked attention", 300, 1000))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(get_right_context_mask(timesteps)), get_right_context_mask(timesteps)[:, :, :, :10]], "unchanged masked attention", 300, 50))
                 # printops.append(
                 #     tf.compat.v1.Print([], [tf.shape(diagonals_mask), diagonals_mask[:,:10]], "diagonal masks (for targets)", 300, 50))
+
+
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[:,:10]], "target_ids in", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,...],
+                #                             enc_output[timesteps, ...]], "enc_output", 300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(positional_signal), positional_signal[0, ..., :10],
+                #                             positional_signal[..., : 10]], "positional_signal", 300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:,:,:10], cross_attn_mask[timesteps,:,:,:10]], "cross_attn_mask", 300, 50))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[0, :, :5, :5], self_attn_mask[timesteps, :, :5, :5]], "masked attention", 300, 1000))
+                # printops.append(
+                #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[-1,:10], target_ids[-1 - timesteps,:10]], "target_ids in", 300, 50))
                 # with tf.control_dependencies(printops):
                 logits = _decoding_function()
-                diag = tf.range(timesteps)
-                diag = tf.expand_dims(diag, 1)
-                diag = tf.concat([diag, diag], 1) # [[1,1],[2,2]...[timesteps,timesteps]]
-                diag = repeat(diag, self.config.target_vocab_size, 0)
+                if not SQUASH:
+                    print("not squashing loss")
+                else:
+                    diag = tf.range(timesteps)
+                    diag = tf.expand_dims(diag, 1)
+                    diag = tf.concat([diag, diag], 1) # [[1,1],[2,2]...[timesteps,timesteps]]
+                    diag = repeat(diag, self.config.target_vocab_size, 0)
 
-                vocab_locs = tf.range(self.config.target_vocab_size)
-                vocab_locs = tf.tile(vocab_locs, [timesteps])
-                vocab_locs = tf.expand_dims(vocab_locs, 1)
-                indices = tf.concat([diag, vocab_locs], 1)
-                indices = tf.tile(indices, [batch_size, 1])
+                    vocab_locs = tf.range(self.config.target_vocab_size)
+                    vocab_locs = tf.tile(vocab_locs, [timesteps])
+                    vocab_locs = tf.expand_dims(vocab_locs, 1)
+                    indices = tf.concat([diag, vocab_locs], 1)
+                    indices = tf.tile(indices, [batch_size, 1])
 
-                # printops = []
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(logits), logits[...,:10]], "logits ungathered",
-                #                        300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([],
-                #                        [tf.shape(indices)],
-                #                        "indices shape", 300, 100))
-                # printops.append(
-                #     tf.compat.v1.Print([], [batch_size, timesteps, self.config.target_vocab_size], "logits reshaped to",
-                #                        300, 50))
-                # with tf.control_dependencies(printops):
-                logits = tf.gather_nd(logits, indices)
+                    printops = []
+                    printops.append(
+                        tf.compat.v1.Print([], [logits[0,:,:3], logits[1,:,:3], logits[2,:,:3]], "first logits ungathered",
+                                           300, 50))
+                    printops.append(
+                        tf.compat.v1.Print([], [logits[timesteps,:,:3], logits[timesteps + 1,:,:3], logits[2,:,:3]], "second sent logits ungathered",
+                                           300, 50))
+                    printops.append(
+                        tf.compat.v1.Print([], [tf.shape(logits), logits[timesteps - 1,:,:3]], "logits ungathered",
+                                           300, 50))
+                    printops.append( tf.compat.v1.Print([], [tf.shape(indices)], "indices shape", 300, 100))
+                    printops.append( tf.compat.v1.Print([], [timesteps], "timesteps", 300, 100))
+                    printops.append(
+                        tf.compat.v1.Print([], [batch_size, timesteps, self.config.target_vocab_size], "logits reshaped to",
+                                           300, 50))
+                    with tf.control_dependencies(printops):
+                        logits = tf.gather_nd(logits, indices)
 
-                # printops = []
-                # vocab_size = self.config.target_vocab_size
-                # printops.append(
-                #     tf.compat.v1.Print([],
-                #                        [tf.shape(indices), indices[0], indices[vocab_size],
-                #                         indices[vocab_size*2],indices[vocab_size*3],indices[vocab_size*4]],
-                                       # "indices top gather logits (every vocab size)", 300, 100))
-                # tmp = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
-                # printops.append(
-                #     tf.compat.v1.Print([],
-                #                        [tf.shape(tmp), tmp[...,:10]],
-                #                        "logits", 300, 50))
-                # with tf.control_dependencies(printops):
-                logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
+
+                    # printops = []
+                    # vocab_size = self.config.target_vocab_size
+                    # printops.append(
+                    #     tf.compat.v1.Print([],
+                    #                        [tf.shape(indices), indices[0], indices[vocab_size],
+                    #                         indices[vocab_size*2],indices[vocab_size*3],indices[vocab_size*4]],
+                                           # "indices top gather logits (every vocab size)", 300, 100))
+                    # tmp = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
+                    # printops.append(
+                    #     tf.compat.v1.Print([],
+                    #                        [tf.shape(tmp), tmp[...,:10]],
+                    #                        "logits", 300, 50))
+                    # with tf.control_dependencies(printops):
+                    logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
             else:
                 logits = _decoding_function()
+            printops = []
+            printops.append(
+                tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,:10]], "final logits",
+                                   300, 50))
+            with tf.control_dependencies(printops):
+                logits = logits * 1 + 0
+
         return logits

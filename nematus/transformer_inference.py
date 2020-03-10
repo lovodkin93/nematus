@@ -109,7 +109,7 @@ class ModelAdapter:
                 # printops.append(tf.compat.v1.Print([], [memories["layer_1"]["keys"], memories[
                 #                 "layer_1"]["values"]], "memories", 10, 50))
                 # with tf.control_dependencies(printops):
-                if self.config.target_graph:
+                if self.config.target_graph or not self.config.sequential:
                     max_size = self.config.maxlen + 1
                     x = tf.pad(x, [[0, 0], [0, max_size - tf.shape(x)[1]]])
                     target_embeddings = decoder._embed(x)
@@ -160,7 +160,7 @@ class ModelAdapter:
                             layer_id].apply(inputs)
                         layer_output += inputs[0]  # residual connection
 
-                if self.config.target_graph:
+                if self.config.target_graph or not self.config.sequential:
                     layer_output = layer_output[:, :current_time_step, :]
                     # Propagate values through the decoder stack.
                 # NOTE: No self-attention mask is applied at decoding, as
@@ -168,7 +168,9 @@ class ModelAdapter:
                 for layer_id in range(1, self.config.transformer_dec_depth + 1):
                     layer = decoder.decoder_stack[layer_id]
                     mem_key = 'layer_{:d}'.format(layer_id)
-                    if self.config.target_graph:
+                    if self.config.target_graph or not self.config.sequential:
+                        if self.config.target_graph and self.config.sequential:
+                            raise NotImplementedError("need to add attention mask to prevent words from forward attention in target)graph inference")
                         layer_memories = None
                     else:
                         layer_memories = memories[mem_key]

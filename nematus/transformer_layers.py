@@ -591,6 +591,10 @@ class MaskedCrossEntropy(object):
             masked_loss = normalized_loss * target_mask
 
             sentence_lengths = tf.reduce_sum(input_tensor=target_mask, axis=self.time_dim, keepdims=False)
-            sentence_loss = tf.math.divide(tf.reduce_sum(input_tensor=masked_loss, axis=self.time_dim, keepdims=False), sentence_lengths)
+            print_ops = []
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(sentence_lengths), sentence_lengths], "sentence_lengths", 50, 200))
+            with tf.control_dependencies(print_ops):
+                sentence_loss = tf.math.divide(tf.reduce_sum(input_tensor=masked_loss, axis=self.time_dim, keepdims=False), tf.maximum(1., sentence_lengths))
             batch_loss = tf.reduce_mean(input_tensor=sentence_loss, keepdims=False)
         return masked_loss, sentence_loss, batch_loss

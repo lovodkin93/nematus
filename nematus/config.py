@@ -346,6 +346,12 @@ class ConfigSpecification:
                  '%(default)s) - CURRENTLY ONLY WORKS FOR \'rnn\' MODEL'))
 
         group.append(ParameterSpecification(
+            name='sequential', default=True,
+            visible_arg_names=['--non_sequential'],
+            action='store_false',
+            help='set to non_sequential: system each target word could only attend previous words (even when targets are available) (default: True)'))
+
+        group.append(ParameterSpecification(
             name='target_graph', default=False,
             visible_arg_names=['--target_graph'],
             action='store_true',

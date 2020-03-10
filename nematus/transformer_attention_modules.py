@@ -132,20 +132,22 @@ class MultiHeadAttentionLayer(object):
         # Tile keys and values tensors to match the number of decoding beams; ignored if already done by fusion module
         num_beams = get_shape_list(queries)[0] // get_shape_list(keys)[0]
 
-        print_ops = []
-        print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "in_values" + self.name, 50, 100))
-        print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "in_queries " + self.name, 50, 100))
-        print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "in_keys"+ self.name, 50, 100))
-        with tf.control_dependencies(print_ops):
-            keys = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(keys, [num_beams, 1, 1, 1]), false_fn=lambda: keys)
+        # print_ops = []
+        # print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "in_values" + self.name, 50, 100))
+        # print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "in_queries " + self.name, 50, 100))
+        # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "in_keys" + self.name, 50, 100))
+        # if "self" in self.name:
+        #     print_ops = []
+        # with tf.control_dependencies(print_ops):
+        keys = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(keys, [num_beams, 1, 1, 1]), false_fn=lambda: keys)
         values = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(values, [num_beams, 1, 1, 1]), false_fn=lambda: values)
 
-        print_ops = []
-        print_ops.append(
-            tf.compat.v1.Print([], [tf.shape(values),tf.shape(keys)],"tiled_values == tiled_keys? " + self.name, 50, 100))
-        with tf.control_dependencies(print_ops):
-            # Transpose split inputs
-            queries = tf.transpose(a=queries, perm=[0, 2, 1, 3])
+        # print_ops = []
+        # print_ops.append(
+        #     tf.compat.v1.Print([], [tf.shape(values),tf.shape(keys)],"tiled_values == tiled_keys? " + self.name, 50, 100))
+        # with tf.control_dependencies(print_ops):
+        # Transpose split inputs
+        queries = tf.transpose(a=queries, perm=[0, 2, 1, 3])
         values = tf.transpose(a=values, perm=[0, 2, 1, 3])
         attn_logits = tf.matmul(queries, tf.transpose(a=keys, perm=[0, 2, 3, 1]))
 
@@ -162,14 +164,16 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
-            print_ops = []
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[...,:10]], "attn_mask "+ self.name, 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[...,:10]], "attn_logits "+ self.name, 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0,0,:,:10]], "values "+ self.name, 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0,0,:,:10]], "queries "+ self.name, 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0,0,:,:10]], "keys "+ self.name, 50, 100))
-            with tf.control_dependencies(print_ops):
-                attn_logits += attn_mask
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[...,:10]], "attn_mask "+ self.name, 50, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[...,:10]], "attn_logits "+ self.name, 50, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0,0,:,:10]], "values "+ self.name, 50, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0,0,:,:10]], "queries "+ self.name, 50, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0,0,:,:10]], "keys "+ self.name, 50, 100))
+            # if "self" in self.name:
+            #     print_ops = []
+            # with tf.control_dependencies(print_ops):
+            attn_logits += attn_mask
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)
@@ -186,14 +190,18 @@ class MultiHeadAttentionLayer(object):
         if memory_context is None:
             memory_context = query_context
 
-        print_ops = []
-        print_ops.append(
-            tf.compat.v1.Print([], [tf.shape(memory_context), memory_context[..., :10]], "in_memory_context(key+val)" + self.name, 50, 100))
-        print_ops.append(
-            tf.compat.v1.Print([], [tf.shape(query_context), query_context[..., :10]], "in_query_context " + self.name, 50, 100))
-        with tf.control_dependencies(print_ops):
-            # Get attention inputs
-            queries, keys, values = self._compute_attn_inputs(query_context, memory_context)
+        # print_ops = []
+        # print_ops.append(
+        #     tf.compat.v1.Print([], [tf.shape(memory_context), memory_context[..., :10]], "in_memory_context(key+val)" + self.name, 50, 100))
+        # print_ops.append(
+        #     tf.compat.v1.Print([], [tf.shape(memory_context), tf.shape(query_context)], "same?" + self.name, 50, 100))
+        # print_ops.append(
+        #     tf.compat.v1.Print([], [tf.shape(query_context), query_context[..., :10]], "in_query_context " + self.name, 50, 100))
+        # if "self" in self.name:
+        #     print_ops = []
+        # with tf.control_dependencies(print_ops):
+        # Get attention inputs
+        queries, keys, values = self._compute_attn_inputs(query_context, memory_context)
 
         # Recall and update memories (analogous to the RNN state) - decoder only
         if layer_memories is not None:

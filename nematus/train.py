@@ -186,6 +186,8 @@ def train(config, sess):
 
     updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
                            writer)
+    # val_updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
+    #                        writer)
 
     if config.exponential_smoothing > 0.0:
         smoothing = ExponentialSmoothing(config.exponential_smoothing)
@@ -327,11 +329,11 @@ def train(config, sess):
                 if config.exponential_smoothing > 0.0:
                     sess.run(fetches=smoothing.swap_ops)
                     valid_ce = validate(sess, replicas[0], config,
-                                        valid_text_iterator)
+                                        valid_text_iterator, updater)
                     sess.run(fetches=smoothing.swap_ops)
                 else:
                     valid_ce = validate(sess, replicas[0], config,
-                                        valid_text_iterator)
+                                        valid_text_iterator, updater)
                 logging.info("ce done")
                 if (len(progress.history_errs) == 0 or
                             valid_ce < min(progress.history_errs)):
@@ -451,9 +453,9 @@ def save_non_checkpoint(session, saver, save_path):
 
 
 
-def validate(session, model, config, text_iterator):
+def validate(session, model, config, text_iterator, updater):
     ce_vals, token_counts = calc_cross_entropy_per_sentence(
-        session, model, config, text_iterator, normalization_alpha=0.0)
+        session, model, config, text_iterator, updater=updater, normalization_alpha=0.0)
     num_sents = len(ce_vals)
     num_tokens = sum(token_counts)
     sum_ce = sum(ce_vals)
@@ -512,7 +514,7 @@ def validate_with_script(session, beam_search_sampler):
     return score
 
 
-def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
+def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updater,
                                     normalization_alpha=0.0):
     """Calculates cross entropy values for a parallel corpus.
 
@@ -557,23 +559,30 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
         else:
             target_edges_time = None
             target_labels_time = None
-        x, x_mask, y, y_mask, target_edges_time, target_labels_time = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time, config.factors,
-                                                 maxlen=None)
 
-        # Run the minibatch through the model to get the sentence-level cross entropy values.
-        feeds = {model.inputs.x: x,
-                 model.inputs.x_mask: x_mask,
-                 model.inputs.y: y,
-                 model.inputs.y_mask: y_mask,
-                 model.inputs.training: False}
-        if config.target_graph:
-            timesteps = y.shape[0]
-            feeds[model.inputs.edges] = util.times_to_input(target_edges_time, timesteps)
-            if config.target_labels_num:
-                feeds[model.inputs.labels] = util.times_to_input(target_labels_time, timesteps)
-            # logging.info("fed ce_labels" + str(model.inputs.label_times.indices))
-            # logging.info("fed ce_edges" + str(model.inputs.edge_times.indices))
-        batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds)
+
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time = util.prepare_data(source_sents, target_sents,
+                                                                              target_edges_time, target_labels_time,
+                                                                              config.factors,
+                                                                              maxlen=None)
+
+        # # Run the minibatch through the model to get the sentence-level cross entropy values.
+        # feeds = {model.inputs.x: x,
+        #          model.inputs.x_mask: x_mask,
+        #          model.inputs.y: y,
+        #          model.inputs.y_mask: y_mask,
+        #          model.inputs.training: False}
+        # if config.target_graph:
+        #     timesteps = y.shape[0]
+        #     feeds[model.inputs.edges] = util.times_to_input(x_edges_time, timesteps)
+        #     if config.target_labels_num:
+        #         feeds[model.inputs.labels] = util.times_to_input(x_labels_time, timesteps)
+        # print("old op", model.loss_per_sentence )
+        # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
+        # batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
+
+
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]
@@ -582,11 +591,17 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator,
                 n**normalization_alpha for n in batch_token_counts]
             batch_ce_vals /= np.array(adjusted_lens)
 
+        if config.target_graph or not config.sequential:
+            batch_ce_vals = [cell for col in batch_ce_vals for row in col for cell in row]
+            batch_ce_vals = np.reshape(batch_ce_vals, [len(batch_token_counts), -1])
+
+            batch_ce_vals = np.sum(batch_ce_vals, 1)
+
         ce_vals += list(batch_ce_vals)
         token_counts += batch_token_counts
         logging.info("Seen {}".format(len(ce_vals)))
 
-    assert len(ce_vals) == len(token_counts)
+    assert len(ce_vals) == len(token_counts), f"{len(ce_vals)} == {len(token_counts)}"
     return ce_vals, token_counts
 
 
