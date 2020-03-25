@@ -124,13 +124,22 @@ class Transformer(object):
                 self.target_mask = tf.minimum(repeat(self.target_mask, timesteps, 0), tf.tile(tf.eye(timesteps), [num_sentences, 1]))
 
             print_ops = []
-            # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
-            # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_out)], "target_ids_out", 3)
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,0]], "logits shapes", 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 200))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask], "target_mask for loss", 50, 200))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), self.target_mask[...,-3:]], "target_mask ends for loss", 50, 200))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+            # def printer(logits):
+            #     print([self.target_tokens[i] for i in tf.math.argmax(logits[0, :, :])]
+            #           )
+            #     return [1]
+            first_argmax = tf.math.argmax(logits[0, :, :], axis=-1)
+            argmax = tf.math.argmax(tf.compat.v1.boolean_mask(logits, self.target_mask > 0), axis=-1)
+            # # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out[0,:]], "target_ids_out", 5000, 100))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(logits), logits[0,0,:]], "logits shapes", 5000, 100))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(argmax), argmax, self.target_ids_out[0,:]], "masked predictions and targets", 5000, 100))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(first_argmax), first_argmax, self.target_ids_out[0,:]], "predictions and targets", 5000, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.compat.v1.py_func(printer, [logits], tf.int32)], "printed labels", 5000, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 200))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask], "target_mask for l oss", 50, 200))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), self.target_mask[...,-3:]], "target_mask ends for loss", 50, 200))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
             with tf.control_dependencies(print_ops):
                 logits = logits * 1 #TODO delete
 
@@ -142,7 +151,6 @@ class Transformer(object):
                                             time_major=False,
                                             name='loss_layer')
 
-            print("Try loss with repeated (masked) target ids out")
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
             if self.config.edge_num_constrain > 0:
@@ -180,16 +188,16 @@ class Transformer(object):
 
             sent_lens = tf.reduce_sum(input_tensor=self.target_mask, axis=1, keepdims=False)
 
-            print_ops = []
+            # print_ops = []
+            # self._loss_per_sentence = sentence_loss * sent_lens
+            # self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(masked_loss), masked_loss], "masked_loss", 100, 200))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self._loss), self._loss], "self._loss", 100, 200))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(sentence_loss), sentence_loss], "sentence_loss", 100, 200))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(sent_lens), sent_lens], "sent_lens", 100, 200))
+            # with tf.control_dependencies(print_ops):
             self._loss_per_sentence = sentence_loss * sent_lens
             self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(masked_loss), masked_loss], "masked_loss", 100, 200))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(self._loss), self._loss], "self._loss", 100, 200))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(sentence_loss), sentence_loss], "sentence_loss", 100, 200))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(sent_lens), sent_lens], "sent_lens", 100, 200))
-            with tf.control_dependencies(print_ops):
-                self._loss_per_sentence = sentence_loss * sent_lens
-                self._loss = tf.reduce_mean(input_tensor=self._loss_per_sentence, keepdims=False)
 
             # calculate expected risk
             if self.config.loss_function == 'MRT':
@@ -451,7 +459,7 @@ class TransformerDecoder(object):
         if self.config.target_graph:
             for layer_id in range(self.config.target_gcn_layers):
                 self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1, bias_labels_num=self.labels_num, edge_labels_num=3,
-                    activation=tf.nn.relu, use_bias=self.config.target_labels_num > 0, gate=self.config.target_gcn_gating) #TODO use bias, use gate
+                    activation=tf.nn.relu, use_bias=self.config.target_labels_num > 0, gate=self.config.target_gcn_gating)
         # Initialize layers
         with tf.compat.v1.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -683,23 +691,23 @@ class TransformerDecoder(object):
                     indices = tf.concat([diag, vocab_locs], 1)
                     indices = tf.tile(indices, [batch_size, 1])
 
-                    printops = []
-                    printops.append(
-                        tf.compat.v1.Print([], [logits[0,:,:3], logits[1,:,:3], logits[2,:,:3]], "first logits ungathered",
-                                           300, 50))
-                    printops.append(
-                        tf.compat.v1.Print([], [logits[timesteps,:,:3], logits[timesteps + 1,:,:3], logits[2,:,:3]], "second sent logits ungathered",
-                                           300, 50))
-                    printops.append(
-                        tf.compat.v1.Print([], [tf.shape(logits), logits[timesteps - 1,:,:3]], "logits ungathered",
-                                           300, 50))
-                    printops.append( tf.compat.v1.Print([], [tf.shape(indices)], "indices shape", 300, 100))
-                    printops.append( tf.compat.v1.Print([], [timesteps], "timesteps", 300, 100))
-                    printops.append(
-                        tf.compat.v1.Print([], [batch_size, timesteps, self.config.target_vocab_size], "logits reshaped to",
-                                           300, 50))
-                    with tf.control_dependencies(printops):
-                        logits = tf.gather_nd(logits, indices)
+                    # printops = []
+                    # printops.append(
+                    #     tf.compat.v1.Print([], [logits[0,:,:3], logits[1,:,:3], logits[2,:,:3]], "first logits ungathered",
+                    #                        300, 50))
+                    # printops.append(
+                    #     tf.compat.v1.Print([], [logits[timesteps,:,:3], logits[timesteps + 1,:,:3], logits[2,:,:3]], "second sent logits ungathered",
+                    #                        300, 50))
+                    # printops.append(
+                    #     tf.compat.v1.Print([], [tf.shape(logits), logits[timesteps - 1,:,:3]], "logits ungathered",
+                    #                        300, 50))
+                    # printops.append( tf.compat.v1.Print([], [tf.shape(indices)], "indices shape", 300, 100))
+                    # printops.append( tf.compat.v1.Print([], [timesteps], "timesteps", 300, 100))
+                    # printops.append(
+                    #     tf.compat.v1.Print([], [batch_size, timesteps, self.config.target_vocab_size], "logits reshaped to",
+                    #                        300, 50))
+                    # with tf.control_dependencies(printops):
+                    logits = tf.gather_nd(logits, indices)
 
 
                     # printops = []
@@ -718,11 +726,11 @@ class TransformerDecoder(object):
                     logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
             else:
                 logits = _decoding_function()
-            printops = []
-            printops.append(
-                tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,:10]], "final logits",
-                                   300, 50))
-            with tf.control_dependencies(printops):
-                logits = logits * 1 + 0
+            # printops = []
+            # printops.append(
+            #     tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,:10]], "final logits",
+            #                        300, 50))
+            # with tf.control_dependencies(printops):
+            #     logits = logits * 1 + 0
 
         return logits

@@ -1,25 +1,19 @@
 # based on https://github.com/borgr/gcn_tf/blob/master/gcn.py
-import six
-from six.moves import xrange  # pylint: disable=redefined-builtin
 import numpy as np
-
 import tensorflow as tf
 from tensorflow import expand_dims
 from tensorflow import tile
 from tensorflow.python.framework import ops
 from tensorflow.python.framework import tensor_shape
-from tensorflow.python.util.tf_export import tf_export
-from tensorflow.python.util import tf_decorator
 # from tensorflow.tf_export import tf_export
 from tensorflow.python.layers import base
-from tensorflow.python.ops import logging_ops
-from tensorflow.python.ops import array_ops
-from tensorflow.python.ops import standard_ops
 from tensorflow.python.ops import init_ops
 from tensorflow.python.ops import math_ops
+from tensorflow.python.ops import standard_ops
 from tensorflow.python.ops.ragged.ragged_util import repeat
-from tensorflow.python.ops import special_math_ops
-from tensorflow.python.ops import nn
+from tensorflow.python.util.tf_export import tf_export
+
+
 # from tensorflow.python import math_ops
 # from tensorflow.contrib.eager import context
 
@@ -713,13 +707,13 @@ class GCN(base.Layer):
 
         shape = tf.shape(self.x)
 
-        # printops = []
-        # printops.append(tf.compat.v1.Print([], [self.x], "x", 10, 50))
-        # printops.append(tf.compat.v1.Print([], [self.kernel], "kernel", 10, 50))
-        # printops.append(tf.compat.v1.Print([], [tf.shape(self.x), tf.shape(self.kernel)], "shape main_kernel", 10, 50))
-        # with tf.control_dependencies(printops):
-        xw = standard_ops.tensordot(
-            self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
+        printops = []
+        printops.append(tf.compat.v1.Print([], [tf.shape(self.x), self.x], "x", 10, 50))
+        printops.append(tf.compat.v1.Print([], [tf.shape(self.kernel), self.kernel], "kernel", 10, 50))
+        printops.append(tf.compat.v1.Print([], [tf.shape(self.labels), self.labels.indices, self.labels.values], "edges", 10, 50))
+        with tf.control_dependencies(printops):
+            xw = standard_ops.tensordot(
+                self.x, self.kernel, tf.constant([[-1], [0]], dtype=tf.int32))
 
         # broadcast for each neighbor
         xw = expand_dims(xw, 2)

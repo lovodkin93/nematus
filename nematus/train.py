@@ -452,7 +452,6 @@ def save_non_checkpoint(session, saver, save_path):
             logging.info("Replaced " + new + " for " + old)
 
 
-
 def validate(session, model, config, text_iterator, updater):
     ce_vals, token_counts = calc_cross_entropy_per_sentence(
         session, model, config, text_iterator, updater=updater, normalization_alpha=0.0)
@@ -512,6 +511,42 @@ def validate_with_script(session, beam_search_sampler):
         return None
     logging.info("Validation script score: {}".format(score))
     return score
+
+def _aggregate_sentence_ce(ce_vals, token_counts):
+    """
+    Sums the cross-entropy values per sentence,
+    notice that some values are thrown as they are added by the updater unnecessarily to prevent empty GPUs
+    :param ce_vals:
+    :param token_counts:
+    :return:
+    """
+    # print("ce_vals", ce_vals)
+    # print("token_counts", token_counts)
+    ce_sums = []
+    token_counts_idx = 0
+    needed = token_counts[token_counts_idx]
+    sentence_sum = 0
+    for sub_batch in ce_vals:
+        for replica in sub_batch:
+            for token_ce in replica:
+                sentence_sum += token_ce
+                if sentence_sum == 0:  # skip trailing zeros from last sentence
+                    continue
+                needed -= 1
+                if not needed:
+                    token_counts_idx += 1
+                    ce_sums.append(sentence_sum)
+                    sentence_sum = 0
+                    if token_counts_idx == len(token_counts):
+                        # print("ce_sums", ce_sums)
+                        return ce_sums
+                    needed = token_counts[token_counts_idx]
+                elif sentence_sum != 0 and token_ce == 0:
+                    print("unexpected 0 in _aggregate_sentence_ce", token_ce)
+            assert needed == token_counts[token_counts_idx], "sentence ces were gathered across gpus"
+
+    assert needed == 0, f"Not enough cross-entropy values, expected {token_counts} sentence lengths"
+    return ce_sums
 
 
 def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updater,
@@ -579,7 +614,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         #         feeds[model.inputs.labels] = util.times_to_input(x_labels_time, timesteps)
         # print("old op", model.loss_per_sentence )
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
-        # batch_ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
+        # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
 
         batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time)
@@ -592,15 +627,16 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             batch_ce_vals /= np.array(adjusted_lens)
 
         if config.target_graph or not config.sequential:
-            batch_ce_vals = [cell for col in batch_ce_vals for row in col for cell in row]
-            batch_ce_vals = np.reshape(batch_ce_vals, [len(batch_token_counts), -1])
+            # logging.info(f"gathering {np.array(batch_ce_vals).shape} {batch_ce_vals}")
+            batch_ce_vals = _aggregate_sentence_ce(batch_ce_vals, batch_token_counts)
 
-            batch_ce_vals = np.sum(batch_ce_vals, 1)
-
+        # assert len(ce_vals) == len(token_counts), f"{len(ce_vals)} == {len(token_counts)}"
+        assert len(batch_ce_vals) == len(batch_token_counts), f"{len(batch_ce_vals)} == {len(batch_token_counts)}"
         ce_vals += list(batch_ce_vals)
         token_counts += batch_token_counts
         logging.info("Seen {}".format(len(ce_vals)))
-
+    # print("ce_vals", ce_vals)
+    # print("token_counts", token_counts)
     assert len(ce_vals) == len(token_counts), f"{len(ce_vals)} == {len(token_counts)}"
     return ce_vals, token_counts
 

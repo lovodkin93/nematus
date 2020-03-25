@@ -218,10 +218,10 @@ class ModelUpdater(object):
         for i in range(0, len(split_x), len(self._replicas)):
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
-            print("scaling_factor", scaling_factor)
+            # print("scaling_factor", scaling_factor)
             for j in range(len(self._replicas)):
                 if apply_grads:
-                    print("normalized_weights[i + j]", normalized_weights[i + j])
+                    # print("normalized_weights[i + j]", normalized_weights[i + j])
                     feed_dict[self._graph.replica_weights[j]] = normalized_weights[i + j]
                 feed_dict[self._replicas[j].inputs.x] = split_x[i + j]
                 feed_dict[self._replicas[j].inputs.x_mask] = split_x_mask[i + j]
@@ -250,13 +250,13 @@ class ModelUpdater(object):
                     ops = self._graph.accum_ops
                 else:
                     ops = self._graph._per_sent_losses
-                    print("new op", ops)
                 # run_meta = tf.compat.v1.RunMetadata()
                 run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
                 res = session.run([ops], feed_dict=feed_dict, options=run_options)#, run_metadata=run_meta)
                 if not apply_grads:
                     losses += res
-                    print("accumulating losses per sentence", losses)
+                    # print("accumulating losses per sentence", losses)
+                    # print("losses shapes", [np.array(cur_loss).shape for cur_loss in losses], split_y_mask)
                 # profiler.add_step(self.deleteme, run_meta)  # TODO delete
                 # self.deleteme += 1
                 #
@@ -296,11 +296,11 @@ class ModelUpdater(object):
                 for i in range(len(tmp[0])):
                     print_pro.append(tmp[0][i].tolist())
         if not apply_grads:
-            print("losses before returning", losses)
+            # print("losses before returning", losses)
             return np.array(losses)
 
         elif self._config.print_per_token_pro == False:
-            fetches = self._graph._accumulated_loss
+            # fetches = self._graph._accumulated_loss
 
             # Apply the gradients (and optionally write the summary).
             fetches = self._graph.apply_ops
