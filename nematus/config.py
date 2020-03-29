@@ -15,6 +15,7 @@ try:
 except (ModuleNotFoundError, ImportError) as e:
     import util
 
+
 class ParameterSpecification:
     """Describes a Nematus configuration parameter.
 
@@ -97,18 +98,18 @@ class ConfigSpecification:
 
         # Define the parameter groups and their descriptions.
         description_pairs = [
-            ('',                      None),
-            ('data',                  'data sets; model loading and saving'),
-            ('network',               'network parameters (all model types)'),
-            ('network_rnn',           'network parameters (rnn-specific)'),
-            ('network_transformer',   'network parameters (transformer-'
-                                      'specific)'),
-            ('training',              'training parameters'),
-            ('validation',            'validation parameters'),
-            ('display',               'display parameters'),
-            ('translate',             'translate parameters'),
-            ('sampling',              'sampling parameters'),
-            ('MRT',                   'MRT parameters'),
+            ('', None),
+            ('data', 'data sets; model loading and saving'),
+            ('network', 'network parameters (all model types)'),
+            ('network_rnn', 'network parameters (rnn-specific)'),
+            ('network_transformer', 'network parameters (transformer-'
+                                    'specific)'),
+            ('training', 'training parameters'),
+            ('validation', 'validation parameters'),
+            ('display', 'display parameters'),
+            ('translate', 'translate parameters'),
+            ('sampling', 'sampling parameters'),
+            ('MRT', 'MRT parameters'),
         ]
         self._group_descriptions = collections.OrderedDict(description_pairs)
 
@@ -356,6 +357,18 @@ class ConfigSpecification:
             visible_arg_names=['--target_graph'],
             action='store_true',
             help='True if system also parses the target (default: False)'))
+
+        group.append(ParameterSpecification(
+            name='parent_head', default=False,
+            visible_arg_names=['--parent_head'],
+            action='store_true',
+            help='True if system uses one head for parent attention (default: False)'))
+
+        group.append(ParameterSpecification(
+            name='neighbor_head', default=False,
+            visible_arg_names=['--neighbor_head'],
+            action='store_true',
+            help='True if system uses one head to attend any token neighboring current one (default: False)'))
 
         group.append(ParameterSpecification(
             name='target_labels_num', default=None,
@@ -854,7 +867,7 @@ class ConfigSpecification:
             visible_arg_names=['--patience'],
             type=int, metavar='INT',
             help='early stopping patience (default: %(default)s)'))
-        
+
         group.append(ParameterSpecification(
             name='valid_no_parse', default=False,
             visible_arg_names=['--valid_no_parse'],
@@ -970,14 +983,14 @@ class ConfigSpecification:
             visible_arg_names=['--max_len_a'],
             type=float, metavar='FLOAT',
             help='generate candidates sentences with maximum length: ax + b, '
-                             'where x is the source length'))
+                 'where x is the source length'))
 
         group.append(ParameterSpecification(
             name='max_len_b', default=5,
             visible_arg_names=['--max_len_b'],
             type=int, metavar='INT',
             help='generate candidates sentences with maximum length ax + b, '
-                             'where x is the source length'))
+                 'where x is the source length'))
 
         group.append(ParameterSpecification(
             name='max_sentences_of_sampling', default=0,
@@ -1230,8 +1243,8 @@ def _check_config_consistency(spec, config, set_by_user):
                 continue
             if ((param.name.startswith('rnn_') and
                  config.model_type == 'transformer') or
-                 (param.name.startswith('transformer_') and
-                 config.model_type == 'rnn')):
+                    (param.name.startswith('transformer_') and
+                     config.model_type == 'rnn')):
                 msg = '{} cannot be used with \'{}\' model type'.format(
                     arg_names_string(param), config.model_type)
                 error_messages.append(msg)
@@ -1243,8 +1256,8 @@ def _check_config_consistency(spec, config, set_by_user):
             assert param is not None
             if param.name in set_by_user:
                 msg = '{} cannot be used with \'constant\' learning ' \
-                       'schedule'.format(arg_names_string(param),
-                                         config.model_type)
+                      'schedule'.format(arg_names_string(param),
+                                        config.model_type)
                 error_messages.append(msg)
     elif config.learning_schedule == 'transformer':
         for key in ['learning_rate', 'plateau_steps']:
@@ -1305,12 +1318,12 @@ def _check_config_consistency(spec, config, set_by_user):
         if len(config.dim_per_factor) != config.factors:
             msg = 'mismatch between \'--factors\' ({0}) and ' \
                   '\'--dim_per_factor\' ({1} entries)'.format(
-                      config.factors, len(config.dim_per_factor))
+                config.factors, len(config.dim_per_factor))
             error_messages.append(msg)
         elif sum(config.dim_per_factor) != config.embedding_size:
             msg = 'mismatch between \'--embedding_size\' ({0}) and ' \
                   '\'--dim_per_factor\' (sums to {1})\''.format(
-                      config.embedding_size, sum(config.dim_per_factor))
+                config.embedding_size, sum(config.dim_per_factor))
             error_messages.append(msg)
 
     if len(config.dictionaries) != config.factors + 1:
@@ -1324,7 +1337,7 @@ def _check_config_consistency(spec, config, set_by_user):
     # TODO Extend ParameterSpecification to support mutually exclusive
     #      command-line args.
     if (max_sents_param.name in set_by_user
-        and max_tokens_param.name in set_by_user):
+            and max_tokens_param.name in set_by_user):
         msg = '{} is mutually exclusive with {}'.format(
             arg_names_string(max_sents_param),
             arg_names_string(max_tokens_param))
@@ -1333,8 +1346,8 @@ def _check_config_consistency(spec, config, set_by_user):
     aggregation_param = spec.lookup('gradient_aggregation_steps')
 
     if (aggregation_param.name in set_by_user
-        and (max_sents_param.name in set_by_user
-             or max_tokens_param.name in set_by_user)):
+            and (max_sents_param.name in set_by_user
+                 or max_tokens_param.name in set_by_user)):
         msg = '{} is mutually exclusive with {} / {}'.format(
             arg_names_string(aggregation_param),
             arg_names_string(max_sents_param),
@@ -1343,7 +1356,7 @@ def _check_config_consistency(spec, config, set_by_user):
 
     # softmax_mixture_size and lexical_model are currently mutually exclusive:
     if config.softmax_mixture_size > 1 and config.rnn_lexical_model:
-       error_messages.append('behavior of --rnn_lexical_model is undefined if softmax_mixture_size > 1')
+        error_messages.append('behavior of --rnn_lexical_model is undefined if softmax_mixture_size > 1')
 
     if 'rnn_use_dropout' in set_by_user:
         msg = '--rnn_use_dropout is no longer used. Set --rnn_dropout_* instead (0 by default).\n' \
@@ -1462,6 +1475,7 @@ def _derive_valid_source_dataset(config, meta_config):
     if config.valid_datasets is not None:
         return config.valid_datasets[0]
     return None
+
 
 # if 'valid_bleu_source_dataset' is not declared, then set it same
 # as 'valid_source_dataset'

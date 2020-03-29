@@ -509,7 +509,7 @@ class TransformerDecoder(object):
                         inputs = [dec_input, edges]
 
                     dec_input = self.gcn_stack[layer_id].apply(inputs)
-                #     dec_input += orig_input   # residual connection
+                    dec_input += orig_input   # residual connection
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input", 50, 100))
                 # print_ops.append(tf.compat.v1.Print([], [timesteps], "timesteps", 50, 100))
@@ -616,12 +616,35 @@ class TransformerDecoder(object):
             # printops.append(tf.compat.v1.Print([], [tf.shape(input=target_ids), target_ids], "target_ids are they like decoded x (if not should decoded x lose the beginning 1=<GO>?)", 300, 50))
             # with tf.control_dependencies(printops):
             self_attn_mask = get_right_context_mask(timesteps)
-            positional_signal = get_positional_signal(timesteps,
-                                                      self.config.embedding_size,
-                                                      FLOAT_DTYPE)
+            printops = []
+            printops.append(
+                tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[..., :10]], "self_attn_mask", 300, 50))
+            tf.compat.v1.Print([], [tf.shape(edges), edges.indices], "edges", 300, 50)
+            with tf.control_dependencies(printops):
+                positional_signal = get_positional_signal(timesteps, self.config.embedding_size, FLOAT_DTYPE)
             if self.config.target_graph:
                 cross_attn_mask = repeat(cross_attn_mask, timesteps, 0)
                 enc_output = repeat(enc_output, timesteps, 0)
+
+                attention_rules = []
+                if self.config.parent_head:
+                    raise NotImplementedError
+                    parent_mask = NotImplementedError  # [batch_size, 1(head), token, what it can attend to]
+                    attention_rules.append(parent_mask)
+
+                if self.config.neighbor_head:
+                    neighbor_head_mask = edges * -1e9 # [batch_size, 1(head), token, what it can attend to]
+                    attention_rules.append(neighbor_head_mask)
+
+                if attention_rules:
+                    attention_rules += [tf.zeros_like(attention_rules[0]) for _ in
+                                        range(self.config.transformer_num_heads - len(attention_rules))]
+                    self_attn_mask = tf.tile(self_attn_mask, [1, self.config.transformer_num_heads, 1,
+                                                              1])  # [batch_size, heads, token, what it can attend to]
+                    self_attn_mask += tf.concat(attention_rules)
+                # self_attn_mask = None
+                # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
+
                 # self_attn_mask = None
                 # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
 

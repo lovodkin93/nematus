@@ -15,6 +15,7 @@ except (ModuleNotFoundError, ImportError) as e:
     from tf_utils import get_shape_list
     from transformer_layers import FeedForwardLayer, matmul_nd
 
+
 class MultiHeadAttentionLayer(object):
     """ Defines the multi-head, multiplicative attention mechanism;
     based on the tensor2tensor library implementation. """
@@ -139,8 +140,10 @@ class MultiHeadAttentionLayer(object):
         # if "self" in self.name:
         #     print_ops = []
         # with tf.control_dependencies(print_ops):
-        keys = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(keys, [num_beams, 1, 1, 1]), false_fn=lambda: keys)
-        values = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(values, [num_beams, 1, 1, 1]), false_fn=lambda: values)
+        keys = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(keys, [num_beams, 1, 1, 1]),
+                       false_fn=lambda: keys)
+        values = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(values, [num_beams, 1, 1, 1]),
+                         false_fn=lambda: values)
 
         # print_ops = []
         # print_ops.append(
@@ -164,24 +167,36 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
-            # print_ops = []
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[...,:10]], "attn_mask "+ self.name, 50, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[...,:10]], "attn_logits "+ self.name, 50, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0,0,:,:10]], "values "+ self.name, 50, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0,0,:,:10]], "queries "+ self.name, 50, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0,0,:,:10]], "keys "+ self.name, 50, 100))
-            # if "self" in self.name:
-            #     print_ops = []
-            # with tf.control_dependencies(print_ops):
-            attn_logits += attn_mask
+            print_ops = []
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[..., :10]], "attn_mask " + self.name, 50, 100))
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[..., :10]], "attn_logits " + self.name, 50,
+                                   100))
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "queries " + self.name, 50, 100))
+            print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "keys " + self.name, 50, 100))
+            if "cross" in self.name:
+                print_ops = []
+            with tf.control_dependencies(print_ops):
+                attn_logits += attn_mask
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)
         # Optionally apply dropout:
         if self.dropout_attn > 0.0:
             attn_weights = tf.compat.v1.layers.dropout(attn_weights, rate=self.dropout_attn, training=self.training)
-        # Weigh attention values
-        weighted_memories = tf.matmul(attn_weights, values)
+        print_ops = []
+        print_ops.append(
+            tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[..., :10]], "attn_weights " + self.name, 50,
+                               100))
+        if "cross" in self.name:
+            print_ops = []
+        with tf.control_dependencies(print_ops):
+            # Weigh attention values
+            weighted_memories = tf.matmul(attn_weights, values)
         return weighted_memories
 
     def forward(self, query_context, memory_context, attn_mask, layer_memories):
@@ -265,10 +280,10 @@ class SingleHeadAttentionLayer(object):
                                                            name='queries_projection')
 
                 self.attn_weight = tf.compat.v1.get_variable(name='attention_weight',
-                                                   shape=self.hidden_dims,
-                                                   dtype=float_dtype,
-                                                   initializer=glorot_uniform_initializer(),
-                                                   trainable=True)
+                                                             shape=self.hidden_dims,
+                                                             dtype=float_dtype,
+                                                             initializer=glorot_uniform_initializer(),
+                                                             trainable=True)
 
             self.keys_projection = FeedForwardLayer(self.reference_dims,
                                                     self.hidden_dims,
@@ -403,8 +418,9 @@ class FineGrainedAttentionLayer(SingleHeadAttentionLayer):
 
         if attn_mask is not None:
             transposed_mask = \
-                tf.transpose(a=tf.tile(attn_mask, [get_shape_list(queries)[0] // get_shape_list(attn_mask)[0], 1, 1, 1]),
-                             perm=[2, 0, 3, 1])
+                tf.transpose(
+                    a=tf.tile(attn_mask, [get_shape_list(queries)[0] // get_shape_list(attn_mask)[0], 1, 1, 1]),
+                    perm=[2, 0, 3, 1])
             attn_logits += transposed_mask
 
         # Compute the attention weights
@@ -416,7 +432,8 @@ class FineGrainedAttentionLayer(SingleHeadAttentionLayer):
         # Obtain context vectors
         expanded_values = tf.expand_dims(values, axis=1)
         weighted_memories = \
-            tf.reduce_sum(input_tensor=tf.multiply(tf.transpose(a=attn_weights, perm=[1, 0, 2, 3]), expanded_values), axis=2)
+            tf.reduce_sum(input_tensor=tf.multiply(tf.transpose(a=attn_weights, perm=[1, 0, 2, 3]), expanded_values),
+                          axis=2)
         return weighted_memories
 
     def _multiplicative_attn(self, queries, keys, values, attn_mask):
@@ -438,8 +455,9 @@ class FineGrainedAttentionLayer(SingleHeadAttentionLayer):
 
         if attn_mask is not None:
             transposed_mask = \
-                tf.transpose(a=tf.tile(attn_mask, [get_shape_list(queries)[0] // get_shape_list(attn_mask)[0], 1, 1, 1]),
-                             perm=[2, 0, 3, 1])
+                tf.transpose(
+                    a=tf.tile(attn_mask, [get_shape_list(queries)[0] // get_shape_list(attn_mask)[0], 1, 1, 1]),
+                    perm=[2, 0, 3, 1])
             attn_logits += transposed_mask
 
         # Compute the attention weights
@@ -451,7 +469,8 @@ class FineGrainedAttentionLayer(SingleHeadAttentionLayer):
         # Obtain context vectors
         expanded_values = tf.expand_dims(values, axis=1)
         weighted_memories = \
-            tf.reduce_sum(input_tensor=tf.multiply(tf.transpose(a=attn_weights, perm=[1, 0, 2, 3]), expanded_values), axis=2)
+            tf.reduce_sum(input_tensor=tf.multiply(tf.transpose(a=attn_weights, perm=[1, 0, 2, 3]), expanded_values),
+                          axis=2)
         return weighted_memories
 
     def _attn(self, queries, keys, values, attn_mask):
@@ -479,8 +498,9 @@ class FineGrainedAttentionLayer(SingleHeadAttentionLayer):
         if attn_mask is not None:
             # attn_logits has shape=[batch, query_lengh, key_length, attn_features]
             transposed_mask = \
-                tf.transpose(a=tf.tile(attn_mask, [tf.shape(input=queries)[0] // tf.shape(input=attn_mask)[0], 1, 1, 1]),
-                             perm=[2, 0, 3, 1])
+                tf.transpose(
+                    a=tf.tile(attn_mask, [tf.shape(input=queries)[0] // tf.shape(input=attn_mask)[0], 1, 1, 1]),
+                    perm=[2, 0, 3, 1])
             attn_logits += transposed_mask
 
         # Compute the attention weights
