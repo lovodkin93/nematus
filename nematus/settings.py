@@ -82,6 +82,10 @@ class TranslationSettings(BaseSettings):
                 '-o', '--output', type=argparse.FileType('w'),
                 default=sys.stdout, metavar='PATH',
                 help="output file (default: standard output)")
+            self._parser.add_argument(
+                '--output_path', type=str,
+                default="",
+                help="output file path")
 
         self._parser.add_argument(
             '-k', '--beam_size', type=int, default=5, metavar='INT',

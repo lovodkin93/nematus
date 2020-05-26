@@ -22,6 +22,7 @@ except (ModuleNotFoundError, ImportError) as e:
     from util import load_dict, parse_transitions
     import shuffle
 
+
 def fopen(filename, mode='r'):
     if filename.endswith('.gz'):
         return gzip.open(filename, mode, encoding="UTF-8")
@@ -119,9 +120,9 @@ class TextIterator:
         else:
             self.target_labels = None
             self.target_actions = None
+
         # Determine the UNK value for each dictionary (the value depends on
         # which version of build_dictionary.py was used).
-
 
         def determine_unk_val(d):
             if '<UNK>' in d and d['<UNK>'] == 2:
@@ -258,7 +259,7 @@ class TextIterator:
             # actual work here
             while True:
 
-                # read from source file and map to word index
+                # read from source file and map to words index
                 try:
                     ss = self.source_buffer.pop()
                 except IndexError:
@@ -276,7 +277,7 @@ class TextIterator:
                 ss_indices = tmp
                 source.append(ss_indices)
 
-                # read from source file and map to word index
+                # read from source file and map to words index
                 tt = self.target_buffer.pop()
 
                 tt_indices = [lookup_token(w, self.target_dict,
@@ -287,10 +288,11 @@ class TextIterator:
                                   for w in tt_indices]
 
                 if self.target_graph:
-                    # print("read", tt)
-                    tt_edge_time, tt_label_time = convert_text_to_graph(
-                        ["<GO>"] + tt, self.maxlen + 1, self.target_labels, self.target_labels_num, split=self.splitted_action)
-                    target.append((tt_indices, tt_edge_time, tt_label_time))
+                    # logging.info("read" + str(tt))
+                    tt_edge_time, tt_label_time, parents_time = convert_text_to_graph(
+                        ["<GO>"] + tt, self.maxlen + 1, self.target_labels, self.target_labels_num,
+                        split=self.splitted_action)
+                    target.append((tt_indices, tt_edge_time, tt_label_time, parents_time))
 
                 else:
                     target.append(tt_indices)
@@ -320,10 +322,10 @@ class TextIterator:
 
 
 def _last_word(idxs, tokens,
-               graceful=False): 
+               graceful=False):
     if not idxs:
         if not graceful:
-            raise IndexError("Asked for last word on an empty buffer")
+            raise IndexError("Asked for last words on an empty buffer")
         return [], []
     i = -1
     while -i < len(idxs):
@@ -334,8 +336,8 @@ def _last_word(idxs, tokens,
     return idxs[i:], tokens[i:]
 
 
-def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=False, graceful=False):
-    #TODO document
+def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=False, attend_max=False, graceful=False):
+    # TODO document
     # TODO connect reduce and labels to the popped out
     # TODO convert to work with indexes
     slf = 0
@@ -345,15 +347,18 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
     lft_edge = lft
     right_edge = right
     edge_types_num = 3
-
     edge_times = numpy.zeros((max_len, max_len, edge_types_num)) + float("inf")
     for i in range(edge_times.shape[0]):
         edge_times[i, i, slf] = i
-
+    if attend_max:
+        sentence_len = max_len
+    else:
+        sentence_len = len(x_target)
+    parents = numpy.zeros((sentence_len, sentence_len), dtype=np.float32) + float("inf")
+    for i in range(parents.shape[0]):
+        parents[i, i] = i
     if num_labels:
         label_times = numpy.zeros((max_len, max_len, num_labels)) + float("inf")
-    # for i in range(label_times.shape[0]):
-    #     label_times[i, i, slf] = i # TODO labels do not need diagon (delete this for loop
     token_num = 0
     idxs_stack = []
     tokens_stack = []
@@ -376,7 +381,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
                 if graceful and not min_len_cond:
                     heads_ids = []
                     continue
-                assert min_len_cond, "tried to create a left edge with 1 word or less in the buffer " + x_target
+                assert min_len_cond, "tried to create a left edge with 1 words or less in the buffer " + x_target
                 heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
                 idxs_stack, tokens_stack = idxs_stack[:-len(heads_ids)], tokens_stack[:-len(heads_ids)]
                 dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
@@ -389,12 +394,20 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
                 else:
                     label_token = token
                     assert label_token == x_target[token_id], (label_token, token_id, x_target)
-                root = graceful or "root" in label_token # Root expects only one word to exist
+                root = graceful or "root" in label_token  # Root expects only one words to exist
                 dependent_ids, dependent_tokens = _last_word(idxs_stack, tokens_stack, graceful=graceful)
                 idxs_stack, tokens_stack = idxs_stack[:-len(dependent_ids)], tokens_stack[:-len(dependent_ids)]
                 heads_ids, head_tokens = _last_word(idxs_stack, tokens_stack, graceful=root)
             else:
                 raise ValueError("Unexpected reduce action token" + token)
+
+            # add parents
+            for head in heads_ids:
+                parents[token_id, head] = token_id
+                for dependent in dependent_ids:
+                    parents[token_id, dependent] = token_id
+                    parents[dependent, head] = token_id
+                    parents[dependent, token_id] = token_id
 
             # add edge
             for head in heads_ids:
@@ -412,8 +425,9 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
                 assert token.endswith(edge_end)
             elif num_labels:
                 if token not in labels_dict or labels_dict[token] >= label_times.shape[-1]:
-                    print("Token error, token:", token, "labels_dict:", labels_dict, "label_times shape", label_times.shape)
-                    print("token num:", labels_dict[token])
+                    logging.error(
+                        f"Token error, token: {token} labels_dict:{labels_dict} label_times shape {label_times.shape}")
+                    logging.error("token num:", labels_dict[token])
                 for head in heads_ids:
                     for dependent in dependent_ids:
                         label_times[head, dependent, labels_dict[token]] = token_id
@@ -426,11 +440,20 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
             if label and num_labels:
                 label = False
                 if token not in labels_dict or labels_dict[token] >= label_times.shape[-1]:
-                    print("Token error, token:", token, "labels_dict:", labels_dict, "label_times shape", label_times.shape)
-                    print("token num:", labels_dict[token])
+                    logging.error(
+                        f"Token error, token: {token} labels_dict:{labels_dict} label_times shape {label_times.shape}")
+                    logging.error("token num:", labels_dict[token])
                 for head in heads_ids:
                     for dependent in dependent_ids:
                         label_times[head, dependent, labels_dict[token]] = token_id
+
+                # add label relevance to parents
+                # add parents
+                for head in heads_ids:
+                    parents[token_id, head] = token_id
+                    for dependent in dependent_ids:
+                        parents[token_id, dependent] = token_id
+                        parents[dependent, token_id] = token_id
 
                 # add a label to and from edges
                 for head in heads_ids:
@@ -452,4 +475,7 @@ def convert_text_to_graph(x_target, max_len, labels_dict, num_labels, split=Fals
         label_times = np.array(label_times, dtype=np.float32)
     else:
         label_times = np.zeros(1, dtype=np.float32)
-    return edge_times, label_times
+    # print("initial parents", parents, parents.shape)
+    # print("initial parents non_inf", np.argwhere(parents < 1000), parents[parents < 1000])
+    # print("initial shapes", edge_times.shape, label_times.shape, parents.shape)
+    return edge_times, label_times, parents

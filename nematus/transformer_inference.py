@@ -4,6 +4,7 @@ import numpy as np
 
 import sys
 import tensorflow as tf
+
 # from gi.overrides.GObject import signal_accumulator_first_wins
 # from parsing.corpus import ConllSent
 
@@ -97,9 +98,9 @@ class ModelAdapter:
                 # TODO make sure it learns to end sentences at some point
 
                 # print("memory print", memories)
-                # TODO no memories in target_graph inference. and need to word
-                # by word translate in train (perhaps with the same func?)
-                # printops = []
+                # TODO no memories in target_graph inference. and need to words
+                # by words translate in train (perhaps with the same func?)
+                printops = []
                 # printops.append(
                 #     tf.compat.v1.Print([], [tf.shape(x), x], "decoded x_", 10, 50))
                 # printops.append(
@@ -114,7 +115,7 @@ class ModelAdapter:
                     x = tf.pad(x, [[0, 0], [0, max_size - tf.shape(x)[1]]])
                     target_embeddings = decoder._embed(x)
                     signal_slice = positional_signal[
-                        :, :current_time_step, :]
+                                   :, :current_time_step, :]
                     emb_shape = tf.shape(target_embeddings)
                     signal_slice = tf.pad(
                         signal_slice, [[0, 0], [0, emb_shape[1] - current_time_step], [0, 0]])
@@ -122,15 +123,9 @@ class ModelAdapter:
                     step_target_ids = tf.reshape(step_target_ids, [-1, 1])
                     target_embeddings = decoder._embed(step_target_ids)
                     signal_slice = positional_signal[
-                        :, current_time_step - 1:current_time_step, :]
+                                   :, current_time_step - 1:current_time_step, :]
 
                 # Add positional signal.
-                # printops = []
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(signal_slice), signal_slice], "signal_slice", 10, 50))
-                # printops.append(tf.compat.v1.Print([], [tf.shape(
-                #     target_embeddings), target_embeddings], "target_embeddings", 10, 50))
-                # with tf.control_dependencies(printops):
                 target_embeddings += signal_slice
                 # Optionally, apply dropout to embeddings.
                 if self.config.transformer_dropout_embeddings > 0:
@@ -142,39 +137,67 @@ class ModelAdapter:
                 layer_output = target_embeddings
 
                 # add target graph created so far
-                if self.config.target_graph and self.config.target_gcn_layers > 0:
-                    edges, labels = tf.compat.v1.py_func(
-                        self.extract_graph, [x], [tf.float32, tf.float32], stateful=False)
-                    edges.set_shape([None, max_size, max_size, 3])
-                    edges = util.dense_to_sparse_tensor(edges)
-                    if self.config.target_labels_num > 0:
-                        labels.set_shape(
-                            [None, max_size, max_size, self.config.target_labels_num])
-                        labels = util.dense_to_sparse_tensor(labels)
-                    for layer_id in range(self.config.target_gcn_layers):
-                        if self.config.target_labels_num > 0:
-                            inputs = [layer_output, edges, labels]
-                        else:
-                            inputs = [layer_output, edges]
-                        layer_output = self.model.dec.gcn_stack[
-                            layer_id].apply(inputs)
-                        layer_output += inputs[0]  # residual connection
+                if self.config.target_graph and (self.config.target_gcn_layers > 0 or self.config.parent_head):
+                    with tf.compat.v1.name_scope('infer_graph'):
+                        edges, labels, parents = tf.compat.v1.py_func(
+                            self.extract_graph, [x], [tf.float32, tf.float32, tf.float32], stateful=False)
+                        if self.config.target_gcn_layers > 0:
+                            edges.set_shape([None, max_size, max_size, 3])
+                            edges = util.dense_to_sparse_tensor(edges)
+                            edges = tf.sparse.SparseTensor(edges.indices, tf.ones_like(edges.values),
+                                                           edges.dense_shape)  # make zeros from times
+                            if self.config.target_labels_num > 0:
+                                labels.set_shape(
+                                    [None, max_size, max_size, self.config.target_labels_num])
+                                # labels= tf.transpose(labels, perm=[len(labels.shape) - 1] + list(range(len(labels.shape) - 1)))
+                                labels = util.dense_to_sparse_tensor(labels)
+                                labels = tf.sparse.SparseTensor(labels.indices, tf.ones_like(labels.values),
+                                                                labels.dense_shape)  # make zeros from times
+                                # print_ops = []
+                                # print_ops.append(tf.compat.v1.Print([], [tf.shape(labels)], "labels shape", 100, 200))
+                                # print_ops.append(tf.compat.v1.Print([], [tf.shape(edges)], "edges shape", 100, 200))
+                                # with tf.control_dependencies(print_ops):
+                                #     labels = labels * 1
+                            for layer_id in range(self.config.target_gcn_layers):
+                                if self.config.target_labels_num > 0:
+                                    inputs = [layer_output, edges, labels]
+                                else:
+                                    inputs = [layer_output, edges]
+                                layer_output = decoder.gcn_stack[
+                                    layer_id].apply(inputs)
+                                layer_output += inputs[0]  # residual connection
 
                 if self.config.target_graph or not self.config.sequential:
                     layer_output = layer_output[:, :current_time_step, :]
                     # Propagate values through the decoder stack.
                 # NOTE: No self-attention mask is applied at decoding, as
                 #       future information is unavailable.
+                with tf.compat.v1.name_scope('infer_atten_mask'):
+                    self_attn_mask = None
+                    attention_rules = []
+                    if self.config.parent_head:
+                        # make zeros from times
+                        parents = tf.convert_to_tensor(parents)
+                        parents.set_shape([None, max_size, max_size])
+                        parents = parents[:, :current_time_step, :current_time_step]
+                        parents = parents - self._config.translation_maxlen
+                        parents = tf.maximum(parents, 0)
+                        parents = self.model.process_parents(parents)
+                        # add a function that inputs this (will be needed also in infer)
+                        attention_rules.append(parents)
+                    if attention_rules:
+                        self_attn_mask = tf.zeros_like(attention_rules[0])  # allow attention
+                        self_attn_mask = decoder.combine_attention_rules(attention_rules, self_attn_mask)
                 for layer_id in range(1, self.config.transformer_dec_depth + 1):
                     layer = decoder.decoder_stack[layer_id]
                     mem_key = 'layer_{:d}'.format(layer_id)
                     if self.config.target_graph or not self.config.sequential:
                         if self.config.target_graph and self.config.sequential:
-                            raise NotImplementedError("need to add attention mask to prevent words from forward attention in target)graph inference")
+                            raise NotImplementedError(
+                                "need to add attention mask to prevent words from forward attention in target)graph inference")
                         layer_memories = None
                     else:
                         layer_memories = memories[mem_key]
-                    self_attn_mask = None
                     layer_output, memories[mem_key] = \
                         layer['self_attn'].forward(
                             layer_output, None, self_attn_mask, layer_memories)
@@ -184,7 +207,7 @@ class ModelAdapter:
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.
-                # keep only the logits of the newly predicted word
+                # keep only the logits of the newly predicted words
                 dec_output = layer_output[:, -1, :]
                 # Project decoder stack outputs and apply the soft-max
                 # non-linearity.
@@ -199,14 +222,14 @@ class ModelAdapter:
             state_size = self.config.state_size
             memories = {}
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
-                if self.config.target_graph: # when target graph (conditional) no memories are kept
+                if self.config.target_graph:  # when target graph (conditional) no memories are kept
                     layer_memories = {}
                 else:
                     layer_memories = {
-                    'keys': tf.tile(tf.zeros([batch_size, 0, state_size]),
-                                    [beam_size, 1, 1]),
-                    'values': tf.tile(tf.zeros([batch_size, 0, state_size]),
-                                      [beam_size, 1, 1])}
+                        'keys': tf.tile(tf.zeros([batch_size, 0, state_size]),
+                                        [beam_size, 1, 1]),
+                        'values': tf.tile(tf.zeros([batch_size, 0, state_size]),
+                                          [beam_size, 1, 1])}
                 memories['layer_{:d}'.format(layer_id)] = layer_memories
             return memories
 
@@ -266,7 +289,7 @@ class ModelAdapter:
             for layer_key in memories.keys():
                 layer_dict = memories[layer_key]
                 gathered_memories[layer_key] = dict()
-                if layer_dict is not None: # when using self.config.target_graph memories are not used
+                if layer_dict is not None:  # when using self.config.target_graph memories are not used
                     for attn_key in layer_dict.keys():
                         attn_tensor = layer_dict[attn_key]
                         gathered_memories[layer_key][attn_key] = \
@@ -289,17 +312,42 @@ class ModelAdapter:
                     print("Label not understood, skipping", idn)
                 elif inv_dict[idn] not in ["<EOS>"]:
                     extracted.append(inv_dict[idn])
-            sents.append(extracted) # are allowed as words "<GO>", "<UNK>"
-                   # TODO is this indeed the right format of all the inputs?
+            sents.append(extracted)  # are allowed as words "<GO>", "<UNK>"
+            # TODO is this indeed the right format of all the inputs?
         # strs = [inv_dict[idn] for idn in ids if inv_dict[idn] not in
         # ["<EOS>", "<GO>", "<UNK>"]] #TODO is this indeed the right format of
         # all the inputs?
         # print("first sent for graph", sents[0])
         converted = [convert_text_to_graph(
-            sent, self._config.maxlen + 1, self.model.target_labels_dict, self.model.target_labels_num, graceful=True) for sent in sents]
-        edge_times, label_times = zip(*converted)
+            sent, self._config.maxlen + 1, self.model.target_labels_dict, self.model.target_labels_num, attend_max=True,
+            graceful=True)
+            for sent in sents]
+        edge_times, label_times, parents = zip(*converted)
+        edge_times = np.array(edge_times)
+        # max_sen_len = max([len(parent) for parent in parents])  # sentences may have finished
+        # if len(parents.shape) < 3:
+        #     print(f"sents {sents}")
+        # print(f"max_sen_len {max_sen_len}")
+        # print(f"unmaxed last parents {parents[-3:]}")
+        # same_sized_parents = []
+        # for parent in parents:
+        #     if parent.shape != 2:
+        #         np.expand_dims(parent, 1)
+        #     padding = max_sen_len - len(parent)
+        #     parent = np.pad(parent, ((0, padding), (0, padding)), mode="constant", constant_values=float("inf"))
+        #     same_sized_parents.append(parent)
+        # # parents = [np.pad(parent, ((0, max_sen_len - len(parent)), (0, max_sen_len - len(parent))) ]
+        # print(f"parents maxed {parents}")
+        parents = np.array(parents, dtype=np.float32)
+        # print("parents, edge shapes", parents.shape, edge_times.shape)
+        # padding = edge_times.shape[1] - parents.shape[1]
+        # print("pad size", padding)
+        # parents = np.pad(parents, ((0, 0), (0, padding), (0, padding)), mode="constant")
+        # print("returning", edge_times, label_times, parents)
+        # print("returning types", type(edge_times), type(label_times), type(parents[0]))
+        # print("returning parents len, supposed", len(parents), len(sents))
         # if len(edge_times.shape) == 3:
         #     edge_times = np.expand_dims(edge_times, axis=0)
         # if len(label_times.shape) == 3:
         #     label_times = np.expand_dims(label_times, axis=0)
-        return edge_times, label_times
+        return edge_times, label_times, parents

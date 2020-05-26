@@ -61,6 +61,8 @@ def main(settings):
             config = load_config_from_json_file(model)
             setattr(config, 'reload', model)
             configs.append(config)
+            # print("config",config)
+            # raise
 
         # Create the model graphs.
         logging.debug("Loading models\n")
@@ -107,11 +109,14 @@ def main(settings):
                              'positive to negative (as of commit 95793196...). '
                              'If you are using the scores for reranking etc, then '
                              'you may need to update your scripts.')
-
+        if settings.output_path:
+            out = open(settings.output_path, "w")
+        else:
+            out = settings.output
         # Translate the source file.
         translate_utils.translate_file(
             input_file=settings.input,
-            output_file=settings.output,
+            output_file=out,
             session=session,
             sampler=sampler,
             config=configs[0],
@@ -120,7 +125,8 @@ def main(settings):
             nbest=settings.n_best,
             minibatch_size=settings.minibatch_size,
             maxibatch_size=settings.maxibatch_size)
-
+        if settings.output_path is not None:
+            out.close()
 
 if __name__ == "__main__":
     main(settings)

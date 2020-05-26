@@ -164,7 +164,7 @@ def translate_file(input_file, output_file, session, models, configs,
         beams = []
         for x in minibatches:
             y_dummy = numpy.zeros(shape=(len(x), 1))
-            x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, configs[0].factors,
+            x, x_mask, _, _, _, _, _ = util.prepare_data(x, y_dummy, configs[0].factors,
                                                       maxlen=None)
             sample = model_set.decode(
                 session=session,

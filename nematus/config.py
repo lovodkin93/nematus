@@ -312,7 +312,7 @@ class ConfigSpecification:
             visible_arg_names=['--dim_per_factor'],
             derivation_func=_derive_dim_per_factor,
             type=int, metavar='INT', nargs='+',
-            help='list of word vector dimensionalities (one per factor): '
+            help='list of words vector dimensionalities (one per factor): '
                  '\'--dim_per_factor 250 200 50\' for total dimensionality '
                  'of 500 (default: %(default)s)'))
 
@@ -347,10 +347,16 @@ class ConfigSpecification:
                  '%(default)s) - CURRENTLY ONLY WORKS FOR \'rnn\' MODEL'))
 
         group.append(ParameterSpecification(
+            name='profile', default=False,
+            visible_arg_names=['--profile'],
+            action='store_true',
+            help='Whether to run profiling'))
+
+        group.append(ParameterSpecification(
             name='sequential', default=True,
             visible_arg_names=['--non_sequential'],
             action='store_false',
-            help='set to non_sequential: system each target word could only attend previous words (even when targets are available) (default: True)'))
+            help='set to non_sequential: system each target words could only attend previous words (even when targets are available) (default: True)'))
 
         group.append(ParameterSpecification(
             name='target_graph', default=False,
@@ -559,7 +565,7 @@ class ConfigSpecification:
             name='transformer_dropout_embeddings', default=0.1,
             visible_arg_names=['--transformer_dropout_embeddings'],
             type=float, metavar='FLOAT',
-            help='dropout applied to sums of word embeddings and positional '
+            help='dropout applied to sums of words embeddings and positional '
                  'encodings (default: %(default)s)'))
 
         group.append(ParameterSpecification(
@@ -597,7 +603,7 @@ class ConfigSpecification:
             name='inverse_loss', default=False,
             visible_arg_names=['--inverse_loss'],
             action="store_true",
-            help='Use a loss to avoid predicting the last word'))
+            help='Use a loss to avoid predicting the last words'))
 
         group.append(ParameterSpecification(
             name='edge_num_constrain', default=0.0,

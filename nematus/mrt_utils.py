@@ -170,7 +170,7 @@ def cal_metrics_score(samples, config, num_to_target, refs, index):
     """evaluate candidate sentences based on reference with evaluation metrics
     Args:
         samples: candidate sentences in list (with padding) (maxlen, batch_size*sampleN)
-        num_to_target: dictionary to map number to word
+        num_to_target: dictionary to map number to words
         refs: ground truth translations in list (batch_size, len), uneven
         index: starting point of each source sentence
     Return:

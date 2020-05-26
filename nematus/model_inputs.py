@@ -56,3 +56,8 @@ class ModelInputs(object):
                 name='edges',
                 shape=(seq_len, seq_len, edge_labels_num, batch_size),
                 dtype=tf.float32)
+            if config.parent_head:
+                self.parents = tf.compat.v1.placeholder(
+                    name='parents',
+                    shape=(seq_len, seq_len, batch_size),
+                    dtype=tf.float32)

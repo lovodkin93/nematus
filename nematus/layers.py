@@ -509,7 +509,7 @@ class GRUStack(object):
                 gates_x, proposal_x = gru.precompute_from_x(x2_reversed)
                 h_reversed = layer.forward((gates_x, proposal_x, x_mask_bwd))
                 h = tf.reverse(h_reversed, axis=[0])
-            # Compute the word states, which will become the input for the
+            # Compute the words states, which will become the input for the
             # next layer (or the output of the stack if we're at the top).
             if not self.residual_connections or i < self.first_residual_output:
                 x = h

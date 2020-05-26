@@ -1,3 +1,4 @@
+import logging
 import sys
 import math
 
@@ -72,13 +73,13 @@ class ModelUpdater(object):
                     models=[replicas[0]],
                     configs=[config],
                     beam_size=config.samplesN)
-        # self.deleteme = 0
+        self.deleteme = 0
 
     def are_labels_legal(self, y):
         raise NotImplementedError
 
     def split_per_gpu(self, session, x, x_mask, y, y_mask, num_to_target, x_edges_time=None,
-               x_labels_time=None):
+                      x_labels_time=None, x_parents_time=None):
 
         # Split the minibatch into sub-batches. The number of sub-batches is
         # determined based on either the per-device size limit, if set, or on
@@ -126,9 +127,9 @@ class ModelUpdater(object):
                 self._split_and_pad_minibatch_mrt(
                     x, x_mask, y, y_mask, score, start_points, index)
         else:
-            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights = \
+            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights = \
                 self._split_and_pad_minibatch(
-                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, start_points)
+                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, start_points)
 
         # Scale the weights so that short minibatches (e.g. at the end of
         # maxibatches) contribute less.
@@ -138,11 +139,12 @@ class ModelUpdater(object):
         else:
             # Actual batch size / Max batch size, in tokens
             scaling_factor = (
-                x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights, split_score, split_index, scaling_factor
+                                     x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights, split_score, split_index, scaling_factor
 
-    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None,x_labels_time=None):
-        return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, apply_grads=False)
+    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None):
+        return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents,
+                           apply_grads=False)
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, normalized_weights, scaling_factor = self.split_per_gpu(
         #     session, x, x_mask, y, y_mask, {}, x_edges_time,
         #     x_labels_time)
@@ -183,7 +185,7 @@ class ModelUpdater(object):
         #     session.run([self.model.loss_per_sentence], feed_dict=feed_dict, options=run_options)
 
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
-               x_labels_time=None, apply_grads=True):
+               x_labels_time=None, x_parents=None, apply_grads=True):
         """Updates the model for a single minibatch.
 
         Args:
@@ -199,9 +201,9 @@ class ModelUpdater(object):
             is the sentence-level or token-level cross entropy, optionally with
             L2 or MAP-L2 regularization.
         """
-
-        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights, split_score, split_index, scaling_factor = self.split_per_gpu(session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
-               x_labels_time)
+        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
+            session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
+            x_labels_time, x_parents)
 
         if apply_grads:
             # Normalize the weights so that _ModelUpdateGraph can just sum the
@@ -213,7 +215,9 @@ class ModelUpdater(object):
         # Accumulate gradients.
         # the list to store the per-token-probability if required
         print_pro = []
-        # profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
+        if self._config.profile:
+            logging.info("Profiling")
+            profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
         losses = []
         for i in range(0, len(split_x), len(self._replicas)):
             feed_dict = {}
@@ -237,59 +241,85 @@ class ModelUpdater(object):
                 feed_dict[self._replicas[j].inputs.training] = apply_grads
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]
-                    if self._config.edge_num_constrain > 0:
-                        feed_dict[self._replicas[j].inputs.legal_edge] = self.are_edges_legal(split_y[i + j])
+                    if self._config.parent_head:
+                        # self.deleteme += 1
+                        # if self.deleteme > 200:
+                        #     pass
+                        feed_dict[self._replicas[j].inputs.parents] = util.times_to_parents(split_x_parents[i + j],
+                                                                                            timesteps)
+                        # raise
+                        # logging.info("parents input shape:" + str(feed_dict[self._replicas[j].inputs.parents].shape))
+                        # logging.info("timesteps" + str(timesteps))
+                        # y_shape = feed_dict[self._replicas[j].inputs.parents].shape
+                        # # logging.info(f"num to target {num_to_target}")
+                        # try:
+                        #     logging.info(f"Sentence  {[num_to_target[x] for x in split_y[i + j]]}")
+                        # except TypeError:
+                        #     pass
+                        # except KeyError:
+                        #     pass
+                        # try:
+                        #     logging.info(f"Sentence2  {[num_to_target[x] for x in split_y[i + j][0]]}")
+                        # except TypeError:
+                        #     pass
+                        #
+                        # except KeyError:
+                        #     pass
+                        # logging.info(f"{split_y[i + j]}, should fix? pad? what?")
                     feed_dict[self._replicas[j].inputs.edges] = util.times_to_input(
                         split_x_edges_time[i + j], timesteps)
                     if self._config.target_labels_num:
                         feed_dict[self._replicas[j].inputs.labels] = util.times_to_input(
                             split_x_labels_time[i + j], timesteps)
+                    if self._config.edge_num_constrain > 0:
+                        feed_dict[self._replicas[j].inputs.legal_edge] = self.are_edges_legal(split_y[i + j])
 
-            if self._config.print_per_token_pro == False:
+            if not self._config.print_per_token_pro:
                 if apply_grads:
                     ops = self._graph.accum_ops
                 else:
                     ops = self._graph._per_sent_losses
-                # run_meta = tf.compat.v1.RunMetadata()
+                run_meta = tf.compat.v1.RunMetadata()
                 run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
-                res = session.run([ops], feed_dict=feed_dict, options=run_options)#, run_metadata=run_meta)
+                res = session.run([ops], feed_dict=feed_dict, options=run_options, run_metadata=run_meta)
                 if not apply_grads:
                     losses += res
                     # print("accumulating losses per sentence", losses)
-                    # print("losses shapes", [np.array(cur_loss).shape for cur_loss in losses], split_y_mask)
-                # profiler.add_step(self.deleteme, run_meta)  # TODO delete
-                # self.deleteme += 1
-                #
-                # #
-                # # # Profile the parameters of your model.
-                # # # profiler.profile_name_scope(options=(tf.compat.v1.profiler.ProfileOptionBuilder
-                # # #                                      .trainable_variables_parameter()))
-                # #
-                # # # Or profile the timing of your model operations.
-                # opts = tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory()
-                # profiler.profile_operations(options=opts)
-                #
-                # # # Or you can generate a timeline:
-                # # opts = (tf.compat.v1.profiler.ProfileOptionBuilder(
-                # #     tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory())
-                # #         .with_step(i)
-                # #         .with_timeline_output(filename).build())
-                # # profiler.profile_graph(options=opts)
-                #
-                # # Then Start advise.
-                # ALL_ADVICE = {
-                #     'ExpensiveOperationChecker': {},
-                #     'AcceleratorUtilizationChecker': {},
-                #     'JobChecker': {},  # Only available internally.
-                #     'OperationChecker': {},
-                # }
-                # profiler.advise(ALL_ADVICE)
+                    # logging.info(f"losses shapes {[np.array(cur_loss).shape for cur_loss in losses]} {split_y_mask}")
+                if self._config.profile:
+                    profiler.add_step(self.deleteme, run_meta)  # TODO delete
+                    self.deleteme += 1
+                    #
+                    # #
+                    # # # Profile the parameters of your model.
+                    # # # profiler.profile_name_scope(options=(tf.compat.v1.profiler.ProfileOptionBuilder
+                    # # #                                      .trainable_variables_parameter()))
+                    # #
+                    # # Or profile the timing of your model operations.
+                    opts = tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory()
+                    profiler.profile_operations(options=opts)
+                    #
+                    # # # Or you can generate a timeline:
+                    # # opts = (tf.compat.v1.profiler.ProfileOptionBuilder(
+                    # #     tf.compat.v1.profiler.ProfileOptionBuilder.time_and_memory())
+                    # #         .with_step(i)
+                    # #         .with_timeline_output(filename).build())
+                    # # profiler.profile_graph(options=opts)
+                    #
+                    # Then Start advise.
+                    ALL_ADVICE = {
+                        'ExpensiveOperationChecker': {},
+                        'AcceleratorUtilizationChecker': {},
+                        'JobChecker': {},  # Only available internally.
+                        'OperationChecker': {},
+                    }
+                    profiler.advise(ALL_ADVICE)
 
-                # # For one-shot API
-                # tf.profiler.advise(
-                #     session.graph, run_meta=run_meta)
-                # if self.deleteme % 10 == 0:
-                #     raise
+                    # For one-shot API
+                    profiler.advise(
+                        session.graph, run_meta=run_meta)
+                    if self.deleteme % 10 == 0:
+                        raise
 
             else:
                 tmp = session.run([self._graph.accum_ops], feed_dict=feed_dict)
@@ -316,7 +346,6 @@ class ModelUpdater(object):
 
             # Reset accumulated values to zero ready for the next call.
             session.run(self._graph.reset_ops)
-
 
             # Return the sum of the individual sentence losses.
             return mean_loss_per_sent * x.shape[-1]
@@ -456,7 +485,7 @@ class ModelUpdater(object):
 
         return start_points
 
-    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time,
+    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time,
                                  start_points):
 
         # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges,
@@ -487,6 +516,11 @@ class ModelUpdater(object):
         split_x_mask = split_array(x_mask, start_points)
         split_y = split_array(y, start_points)
         split_y_mask = split_array(y_mask, start_points)
+        if x_parents_time is not None:
+            split_x_parents_time = split_array(x_parents_time, start_points)
+        else:
+            split_x_parents_time = None
+
         if x_edges_time is not None:
             # split_x_edges = split_array(x_edges, start_points)
             # split_x_labels = split_array(x_labels, start_points)
@@ -508,6 +542,7 @@ class ModelUpdater(object):
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_x_mask]
         split_x = trim_arrays(split_x, max_lens)
         split_x_mask = trim_arrays(split_x_mask, max_lens)
+        # split_x_parents_time = [a[..., 0:l, 0:l, :] for a, l in zip(split_x_parents_time, max_lens)] # attention should be trimmed both in the from and to
         # if split_x_edges_time is not None:
         #     # split_x_edges = trim_arrays(split_x_edges, max_lens)
         #     # split_x_labels = trim_arrays(split_x_labels, max_lens)
@@ -542,6 +577,8 @@ class ModelUpdater(object):
         pad(split_x_mask, padding_size)
         pad(split_y, padding_size)
         pad(split_y_mask, padding_size)
+        if split_x_parents_time is not None:
+            pad(split_x_parents_time, padding_size)
         if split_x_edges_time is not None:
             # pad(split_x_edges, padding_size)
             # pad(split_x_labels, padding_size)
@@ -551,7 +588,7 @@ class ModelUpdater(object):
         for i in range(padding_size):
             weights.append(0.0)
 
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, weights
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights
         # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges,
         # split_x_labels, split_x_edges_time, split_x_labels_time, weights
 
@@ -585,7 +622,7 @@ class ModelUpdater(object):
         s_index = dict(zip(index[0], list(range(len(index[0])))))
         for i in range(len(start_points_new) - 1):
             sub_list = index[0][s_index[start_points_new[i]]
-                :s_index[start_points_new[i + 1]] + 1]
+                                :s_index[start_points_new[i + 1]] + 1]
             tmp.append(numpy.array([l - start_points_new[i]
                                     for l in sub_list]))
 
@@ -681,7 +718,7 @@ class _ModelUpdateGraph(object):
 
         # Create the placeholder for the scaling factor.
         self._scaling_factor = tf.compat.v1.placeholder(name='scaling_factor',
-                                              shape=(), dtype=tf.float32)
+                                                        shape=(), dtype=tf.float32)
 
         # Create the placeholders for the replica weights.
         self._replica_weights = []
@@ -704,7 +741,7 @@ class _ModelUpdateGraph(object):
         for i, v in enumerate(tf.compat.v1.trainable_variables()):
             self._trainables[v.name] = v
             g = tf.compat.v1.get_variable(
-                name='accum'+str(i),  # FIXME better name. Variable scope?
+                name='accum' + str(i),  # FIXME better name. Variable scope?
                 initializer=tf.zeros_like(v),
                 trainable=False)
             self._accumulated_gradients[v.name] = g
@@ -756,7 +793,7 @@ class _ModelUpdateGraph(object):
             device_spec = tf.DeviceSpec(device_type=device_type,
                                         device_index=i)
             with tf.device(device_spec):
-                with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i>0)):
+                with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i > 0)):
                     if self._config.print_per_token_pro:
                         print_pro = self._replicas[i].print_pro
                     elif self._config.loss_function == "cross-entropy":  # 正常的loss/n,n是sample数
@@ -789,13 +826,13 @@ class _ModelUpdateGraph(object):
             summed_grad_vars = self._sum_gradients(all_grad_vars,
                                                    self._replica_weights)
             print("None gradients ", [
-                  v for g, v in summed_grad_vars if g is None])
+                v for g, v in summed_grad_vars if g is None])
 
             self._accum_ops = [tf.compat.v1.assign_add(self._accumulated_loss, summed_loss)]
 
             self._accum_ops += [tf.compat.v1.assign_add(self._accumulated_gradients[v.name],
-                                          g * self._scaling_factor)
-                            for g, v in summed_grad_vars]
+                                                        g * self._scaling_factor)
+                                for g, v in summed_grad_vars]
         else:
             self._accum_ops = print_pro
 
@@ -842,7 +879,7 @@ class _ModelUpdateGraph(object):
                 map_l2_loss = tf.constant(0.0, dtype=tf.float32)
                 map_l2_acc = []
                 for v in tf.compat.v1.trainable_variables():
-                    prior_name = 'prior/'+v.name.split(':')[0]
+                    prior_name = 'prior/' + v.name.split(':')[0]
                     prior_v = tf.compat.v1.get_variable(
                         prior_name, initializer=v.initialized_value(),
                         trainable=False, collections=['prior_variables'],

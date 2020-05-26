@@ -3,12 +3,16 @@
 import pickle as pkl
 import json
 import logging
+import time
+
 import numpy
 import sys
 import numpy as np
 import tensorflow as tf
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
+
+
 if sys.version_info < (3, 6):
     ModuleNotFoundError = SystemError
 
@@ -70,13 +74,18 @@ def reset_dict_indexes(d):
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 
 
-def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, maxlen=None):
-
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, maxlen=None):
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
 
     # move edges to length major instead of batch major
+    if seq_parents_time is not None:
+        seq_parents_time = numpy.array(seq_parents_time)
+        seq_parents_time = numpy.moveaxis(seq_parents_time, 0, -1)
+    else:
+        seq_parents_time = None
+
     if seq_edges_time is not None:
         target_edges_time = numpy.array(seq_edges_time)
         target_edges_time = numpy.moveaxis(target_edges_time, 0, -1)
@@ -104,6 +113,8 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
         seqs_x = new_seqs_x
         lengths_y = new_lengths_y
         seqs_y = new_seqs_y
+        if seq_parents_time is not None:
+            seq_parents_time = seq_parents_time[..., kept]
         if seq_edges_time is not None:
             target_edges_time = target_edges_time[:, :, :, kept]
             target_labels_time = target_labels_time[:, :, :, kept]
@@ -120,25 +131,98 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, n_factors, max
 
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
         x[:, :lengths_x[idx], idx] = list(zip(*s_x))
-        x_mask[:lengths_x[idx]+1, idx] = 1.
+        x_mask[:lengths_x[idx] + 1, idx] = 1.
         y[:lengths_y[idx], idx] = s_y
-        y_mask[:lengths_y[idx]+1, idx] = 1.
+        y_mask[:lengths_y[idx] + 1, idx] = 1.
 
-    return x, x_mask, y, y_mask, target_edges_time, target_labels_time
+    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
 
 
-def times_to_input(times, timesteps):
+def _parent_row_to_attention(row):
+    # np.zeros_like(row) + -1e9 * row > np.arange(len(row))
+    logging.info(f"row? {row} {row.shape}")
+    return np.array([0 if x <= i else -1e9 for i, x in enumerate(row)])
 
+
+def times_to_parents(times, repeat=1):
+    """
+    Converts from times [] to parents input for the network
+    :param times:
+    :param repeat:
+    :return: attention changes with shape [from_tok, to_tok, sent]
+    """
+    # start_time = time.time()
+    # logging.info(f"times.shape {times[0].shape} {times[0]} repeat {repeat}")
+    if len(times.shape) == 1:
+        max_sen_len = repeat
+        tmp = []
+        for sent_times in times:
+            pad = max_sen_len - len(sent_times)
+            tmp.append(np.pad(sent_times, ((0, pad), (0, pad)), mode="constant", constant_values=float("inf")))
+        times = tmp
+        times = np.array(times)
+        times = np.transpose(times, [1, 2, 0])  # time major
+
+
+    # new_start_time = time.time()
+    attention = np.empty(times.size * repeat)  # mask per repetition
+    flat_times = times.flatten()
+    for repetition in range(repeat):
+        attention[repetition::repeat] = np.where(flat_times <= repetition, 0, float("inf"))
+    # logging.info(f"new_times.shape {len(attention[0])}, {attention[0].shape} repeat {repeat}")
+
+    # interleave (make same sentences on different words one after the other)
+    attention_shape = times.shape
+    shape = (attention_shape[0], attention_shape[1], attention_shape[2] * repeat)
+    # attention = np.stack(attention, axis=0).reshape(shape)
+    attention = attention.reshape(shape)
+    # new_mid_time = time.time()
+    # logging.info(f"in new loop {new_mid_time - new_start_time}")
+
+
+    # new_start_time = time.time()
+    # attention = [] # mask per repetition
+    # for repetition in range(repeat):
+    #     new_time = np.where(times <= repetition, 0, float("inf"))
+    #     attention.append(new_time)
+    # # logging.info(f"new_times.shape {len(attention[0])}, {attention[0].shape} repeat {repeat}")
+    #
+    # # interleave (make same sentences on different words one after the other)
+    # attention_shape = attention[0].shape
+    # shape = (attention_shape[0], attention_shape[1], attention_shape[2] * repeat)
+    # attention = np.stack(attention, axis=0).reshape(shape)
+    # attention = attention.reshape(shape)
+    # # new_mid_time = time.time()
+    # # logging.info(f"in new loop {new_mid_time - new_start_time}")
+
+    # logging.info(f"attention.shape {attention.shape} {attention} repeat {repeat}")
+    # times = np.repeat(times, repeat, axis=-1)
+    # shape = times.shape
+    # mid_time = time.time()
+    # # logging.info(f"in first loop {mid_time - start_time}")
+    # for from_tok, to_tok, sent in np.ndindex(shape):
+    #     if times[from_tok, to_tok, sent] <= sent % repeat:
+    #         times[from_tok, to_tok, sent] = 0
+    #     else:
+    #         times[from_tok, to_tok, sent] = float("inf")
+    # end_time = time.time()
+    # logging.info(f"times.shape {times.shape} {times} repeat {repeat}")
+    # # logging.info(f"in second loop {end_time - mid_time}")
+    # assert np.all(times == attention)
+    return attention
+
+
+def times_to_input(times, timesteps):
     idx = []
     for sentence_num in range(times.shape[-1]):
         sentence = times[:, :, :, sentence_num]
         sparse = array_to_sparse_tensor(sentence, feeding=True)
         cur_idx = np.tile(sparse.indices, [timesteps, 1])
         cur_vals = np.tile(sparse.values, [timesteps])
-        num_indices = sparse.indices.shape[0] #  = cur_idx.shape[0] / timesteps
-        cur_timesteps = np.array([i//num_indices for i in range(cur_idx.shape[0])])
-        cur_idx = np.c_[cur_idx, sentence_num * timesteps + cur_timesteps] # add batch column
+        num_indices = sparse.indices.shape[0]  # = cur_idx.shape[0] / timesteps
+        cur_timesteps = np.array([i // num_indices for i in range(cur_idx.shape[0])])
+        cur_idx = np.c_[cur_idx, sentence_num * timesteps + cur_timesteps]  # add batch column
         cond = cur_vals < (cur_timesteps + 1)
         cur_idx = cur_idx[cond, :]
         idx.append(cur_idx)
@@ -224,11 +308,6 @@ def factoredseq2words(seq, inverse_dictionaries, join=True):
             if f == 0:
                 eos_reached = True
                 break
-                # This assert has been commented out because it's possible for
-                # non-zero values to follow zero values for Transformer models.
-                # TODO Check why this happens
-                #assert (i == len(seq) - 1) or (seq[i+1][j] == 0), \
-                #       ('Zero not at the end of sequence', seq)
             elif f in inverse_dictionaries[j]:
                 factors.append(inverse_dictionaries[j][f])
             else:
@@ -272,10 +351,10 @@ def read_all_lines(config, sentences, batch_size):
                 w = [source_to_num[0][w] if w in source_to_num[0] else 2]
             else:
                 w = [source_to_num[i][f] if f in source_to_num[i] else 2
-                                         for (i,f) in enumerate(w.split('|'))]
+                     for (i, f) in enumerate(w.split('|'))]
                 if len(w) != config.factors:
                     raise exception.Error(
-                        'Expected {0} factors, but input word has {1}\n'.format(
+                        'Expected {0} factors, but input words has {1}\n'.format(
                             config.factors, len(w)))
             line.append(w)
         lines.append(line)
@@ -284,10 +363,15 @@ def read_all_lines(config, sentences, batch_size):
     idxs = lengths.argsort()
     lines = lines[idxs]
 
-    #merge into batches
+    # merge into batches
     batches = []
     for i in range(0, len(lines), batch_size):
-        batch = lines[i:i+batch_size]
+        batch = lines[i:i + batch_size]
         batches.append(batch)
 
     return batches, idxs
+
+if __name__ == '__main__':
+
+    a = np.arange(24,dtype=np.float32).reshape((2,3,4))
+    times_to_parents(a, repeat=4)

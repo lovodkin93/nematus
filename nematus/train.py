@@ -16,7 +16,7 @@ import time
 
 # Start logging.
 level = logging.INFO
-logging.basicConfig(level=level, format='%(levelname)s: %(message)s')
+logging.basicConfig(level=level, format='%(levelname)s: %(message)s',  datefmt="%m-%d %H:%M")
 
 import numpy as np
 import tensorflow as tf
@@ -57,8 +57,14 @@ except (ModuleNotFoundError, ImportError) as e:
 np.random.seed(0)
 tf.random.set_seed(0)
 
+
 def load_data(config):
-    logging.info('Reading data...')
+    logging.info(f'Reading data...')
+    logging.info(f"source {config.source_dataset}")
+    logging.info(f"target {config.target_dataset}")
+
+    logging.info(f"source dict {config.source_dicts}")
+    logging.info(f"target dict {config.target_dict}")
     text_iterator = TextIterator(
         source=config.source_dataset,
         target=config.target_dataset,
@@ -113,8 +119,9 @@ def load_data(config):
 
 
 def train(config, sess):
-    assert (config.prior_model != None and (tf.compat.v1.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c==0.0)), \
-    "MAP training requires a prior model file: Use command-line option --prior_model"
+    assert (config.prior_model != None and (
+        tf.compat.v1.train.checkpoint_exists(os.path.abspath(config.prior_model))) or (config.map_decay_c == 0.0)), \
+        "MAP training requires a prior model file: Use command-line option --prior_model"
 
     # Construct the graph, with one model replica per GPU
 
@@ -125,13 +132,14 @@ def train(config, sess):
         assert config.gradient_aggregation_steps == 1
         assert config.max_sentences_per_device == 0, "MRT mode does not support sentence-based split"
         if config.max_tokens_per_device != 0:
-            assert (config.samplesN * config.maxlen <= config.max_tokens_per_device), "need to make sure candidates of a sentence could be " \
-                                                                                      "feed into the model"
+            assert (
+                        config.samplesN * config.maxlen <= config.max_tokens_per_device), "need to make sure candidates of a sentence could be " \
+                                                                                          "feed into the model"
         else:
             assert num_replicas == 1, "MRT mode does not support sentence-based split"
-            assert (config.samplesN * config.maxlen <= config.token_batch_size), "need to make sure candidates of a sentence could be " \
-                                                                                      "feed into the model"
-
+            assert (
+                        config.samplesN * config.maxlen <= config.token_batch_size), "need to make sure candidates of a sentence could be " \
+                                                                                     "feed into the model"
 
     logging.info('Building model...')
     replicas = []
@@ -139,7 +147,7 @@ def train(config, sess):
         device_type = "GPU" if num_gpus > 0 else "CPU"
         device_spec = tf.DeviceSpec(device_type=device_type, device_index=i)
         with tf.device(device_spec):
-            with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i>0)):
+            with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i > 0)):
                 if config.model_type == "transformer":
                     model = TransformerModel(config)
                 else:
@@ -169,9 +177,9 @@ def train(config, sess):
 
     if config.optimizer == 'adam':
         optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=schedule.learning_rate,
-                                           beta1=config.adam_beta1,
-                                           beta2=config.adam_beta2,
-                                           epsilon=config.adam_epsilon)
+                                                     beta1=config.adam_beta1,
+                                                     beta2=config.adam_beta2,
+                                                     epsilon=config.adam_epsilon)
     else:
         logging.error(
             'No valid optimizer defined: {}'.format(config.optimizer))
@@ -218,7 +226,8 @@ def train(config, sess):
     n_sents, n_words = 0, 0
     last_time = time.time()
     logging.info("Initial uidx={}".format(progress.uidx))
-    logging.info("Number of trainable parameters:" + str(np.sum([np.prod(v.get_shape().as_list()) for v in tf.compat.v1.trainable_variables()])))
+    logging.info("Number of trainable parameters:" + str(
+        np.sum([np.prod(v.get_shape().as_list()) for v in tf.compat.v1.trainable_variables()])))
 
     # set epoch = 1 if print per-token-probability
     if config.print_per_token_pro:
@@ -226,36 +235,41 @@ def train(config, sess):
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
         for source_sents, target_sents in text_iterator:
+            logging.info(f"Source len {len(source_sents)}")
             logging.info("Start batch {0}".format(progress.uidx))
             if len(source_sents[0][0]) != config.factors:
-                logging.error('Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
-                    config.factors, len(source_sents[0][0])))
+                logging.error(
+                    'Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
+                        config.factors, len(source_sents[0][0])))
                 sys.exit(1)
             if config.target_graph:
-                target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
+                target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
                 # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
                 # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
                 # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
             else:
                 target_edges_time = None
                 target_labels_time = None
+                target_parents_time = None
             logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
-
-
-            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time = util.prepare_data(
-                source_sents, target_sents, target_edges_time, target_labels_time, config.factors, maxlen=None)
+            # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
+            # logging.info("Source sents " + str(source_sents) + " .")
+            # logging.info("Target sents " + str(target_sents) + " .")
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time = util.prepare_data(
+                source_sents, target_sents, target_edges_time, target_labels_time, target_parents_time, config.factors,
+                maxlen=None)
 
             if x_in is None:
                 logging.info(
                     'Minibatch with zero sample under length {0}'.format(config.maxlen))
                 continue
             write_summary_for_this_batch = config.summary_freq and ((progress.uidx % config.summary_freq == 0) or (
-                config.finish_after and progress.uidx % config.finish_after == 0))
+                    config.finish_after and progress.uidx % config.finish_after == 0))
             (factors, seqLen, batch_size) = x_in.shape
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time)
 
             if config.print_per_token_pro == False:
                 total_loss += output
@@ -280,8 +294,9 @@ def train(config, sess):
             if config.disp_freq and progress.uidx % config.disp_freq == 0:
                 duration = time.time() - last_time
                 disp_time = datetime.now().strftime('[%Y-%m-%d %H:%M:%S]')
-                logging.info('{0} Epoch: {1} Update: {2} Loss/word: {3} Words/sec: {4} Sents/sec: {5}'.format(
-                    disp_time, progress.eidx, progress.uidx, total_loss / n_words, n_words / duration, n_sents / duration))
+                logging.info('{0} Epoch: {1} Update: {2} Loss/words: {3} Words/sec: {4} Sents/sec: {5}'.format(
+                    disp_time, progress.eidx, progress.uidx, total_loss / n_words, n_words / duration,
+                                                             n_sents / duration))
                 last_time = time.time()
                 total_loss = 0.
                 n_sents = 0
@@ -297,6 +312,7 @@ def train(config, sess):
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
+                    # logging.info(f"Source origin all unk? {xx}, {num_to_source}")
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
                     sample = util.seq2words(ss[0][0], num_to_target)
@@ -305,16 +321,17 @@ def train(config, sess):
                     logging.info('SAMPLE: {}'.format(sample))
 
             if config.beam_freq and progress.uidx % config.beam_freq == 0:
-
+                # logging.info(f"beam: x_in? {x_in}")
                 x_small = x_in[:, :, :10]
                 x_mask_small = x_mask_in[:, :10]
-                y_small = y_in[:,:10]
+                y_small = y_in[:, :10]
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
                     config.translation_maxlen, config.normalization_alpha)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
+                    # logging.info(f"beam: Source origin all unk? {xx}, {num_to_source}")
                     source = util.factoredseq2words(xx, num_to_source)
                     target = util.seq2words(yy, num_to_target)
                     logging.info('SOURCE: {}'.format(source))
@@ -336,7 +353,7 @@ def train(config, sess):
                                         valid_text_iterator, updater)
                 logging.info("ce done")
                 if (len(progress.history_errs) == 0 or
-                            valid_ce < min(progress.history_errs)):
+                        valid_ce < min(progress.history_errs)):
                     logging.info("ce improved over history_errs")
                     progress.history_errs.append(valid_ce)
                     progress.bad_counter = 0
@@ -440,7 +457,7 @@ def save_non_checkpoint(session, saver, save_path):
     base_dir = "." if head == "" else head
     with tempfile.TemporaryDirectory(dir=base_dir) as tmp_dir:
         tmp_save_path = os.path.join(tmp_dir, tail)
-        logging.info("Saving temp to " +  tmp_save_path)
+        logging.info("Saving temp to " + tmp_save_path)
         saver.save(session, save_path=tmp_save_path)
         for filename in os.listdir(tmp_dir):
             if filename == 'checkpoint':
@@ -485,7 +502,9 @@ def validate_with_script(session, beam_search_sampler):
     logging.info("about to flush")
     out.flush()
     dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
-    logging.info("Saving dev transltion of " + config.valid_source_dataset +" to " + dev_out_path)
+    logging.info("Script inputs: " + out.name + " " + dev_out_path)
+    logging.info(
+        "Saving dev transltion of " + config.valid_source_dataset + " to " + dev_out_path + " comparing to " + config.valid_target_dataset)
     copyfile(out.name, dev_out_path)
 
     args = [config.valid_script, out.name]
@@ -511,6 +530,7 @@ def validate_with_script(session, beam_search_sampler):
         return None
     logging.info("Validation script score: {}".format(score))
     return score
+
 
 def _aggregate_sentence_ce(ce_vals, token_counts):
     """
@@ -538,15 +558,29 @@ def _aggregate_sentence_ce(ce_vals, token_counts):
                     ce_sums.append(sentence_sum)
                     sentence_sum = 0
                     if token_counts_idx == len(token_counts):
-                        # print("ce_sums", ce_sums)
                         return ce_sums
                     needed = token_counts[token_counts_idx]
                 elif sentence_sum != 0 and token_ce == 0:
-                    print("unexpected 0 in _aggregate_sentence_ce", token_ce)
+                    logging.warning("unexpected 0 in _aggregate_sentence_ce", token_ce)
             assert needed == token_counts[token_counts_idx], "sentence ces were gathered across gpus"
 
     assert needed == 0, f"Not enough cross-entropy values, expected {token_counts} sentence lengths"
     return ce_sums
+
+
+def _flatten(nested):
+    while isinstance(nested[0], (np.ndarray, list)) and len(nested) != 0:
+        if isinstance(nested[0], (np.ndarray)):
+            nested = np.concatenate(nested).ravel()
+        if isinstance(nested[0], list):
+            nested = [nest_item for item in nested for nest_item in item]
+    return nested
+    #
+    # if (not isinstance(nested, list)) or nested == [] or len(nested) == 0:
+    #     return nested
+    # if isinstance(nested[0], list):
+    #     return _flatten(nested[0]) + _flatten(nested[1:])
+    # return nested[:1] + _flatten(nested[1:])
 
 
 def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updater,
@@ -580,13 +614,14 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
+        logging.info(f"Source len {len(source_sents)}")
         if len(source_sents[0][0]) != config.factors:
             logging.error('Mismatch between number of factors in settings '
                           '({0}) and number present in data ({1})'.format(
-                              config.factors, len(source_sents[0][0])))
+                config.factors, len(source_sents[0][0])))
             sys.exit(1)
         if config.target_graph:
-            target_sents, target_edges_time, target_labels_time = list(zip(*target_sents))
+            target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
             # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
             # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
             # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
@@ -594,12 +629,15 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         else:
             target_edges_time = None
             target_labels_time = None
+            target_parents_time = None
 
-
-        x, x_mask, y, y_mask, x_edges_time, x_labels_time = util.prepare_data(source_sents, target_sents,
-                                                                              target_edges_time, target_labels_time,
-                                                                              config.factors,
-                                                                              maxlen=None)
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time = util.prepare_data(source_sents,
+                                                                                              target_sents,
+                                                                                              target_edges_time,
+                                                                                              target_labels_time,
+                                                                                              target_parents_time,
+                                                                                              config.factors,
+                                                                                              maxlen=None)
 
         # # Run the minibatch through the model to get the sentence-level cross entropy values.
         # feeds = {model.inputs.x: x,
@@ -616,14 +654,13 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]
         if normalization_alpha:
             adjusted_lens = [
-                n**normalization_alpha for n in batch_token_counts]
+                n ** normalization_alpha for n in batch_token_counts]
             batch_ce_vals /= np.array(adjusted_lens)
 
         if config.target_graph or not config.sequential:
@@ -631,7 +668,19 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             batch_ce_vals = _aggregate_sentence_ce(batch_ce_vals, batch_token_counts)
 
         # assert len(ce_vals) == len(token_counts), f"{len(ce_vals)} == {len(token_counts)}"
-        assert len(batch_ce_vals) == len(batch_token_counts), f"{len(batch_ce_vals)} == {len(batch_token_counts)}"
+        # logging.info(f"batch_ce_vals {batch_ce_vals}")
+        # logging.info(f"_flatten(batch_ce_vals) {_flatten(batch_ce_vals)}")
+        batch_ce_vals = _flatten(batch_ce_vals)
+        # if len(batch_ce_vals) and isinstance(batch_ce_vals[0], (np.ndarray, np.generic)):
+        #     batch_ce_vals = np.concatenate(batch_ce_vals).ravel() # flatten lists and np arrays
+        if len(batch_ce_vals) != len(batch_token_counts):
+            if len(batch_ce_vals) > len(batch_token_counts):
+                logging.warning(f"{len(batch_ce_vals)} == {len(batch_token_counts)} \n vals  {batch_ce_vals} token_counts\n {batch_token_counts}")
+                logging.warning((f"Assumming unneeded values appear last: {batch_ce_vals[len(batch_token_counts):]}"))
+                batch_ce_vals = batch_ce_vals[:len(batch_token_counts)]
+            else:
+                logging.warning(f"{len(batch_ce_vals)} == {len(batch_token_counts)} \n vals  {batch_ce_vals} token_counts\n {batch_token_counts}")
+                raise ValueError("padding could result in more ce vals, the opposite should not happen")
         ce_vals += list(batch_ce_vals)
         token_counts += batch_token_counts
         logging.info("Seen {}".format(len(ce_vals)))
@@ -643,6 +692,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
 
 if __name__ == "__main__":
     import faulthandler
+
     # print where faults  happen (SIGSEGV, SIGFPE, SIGABRT, SIGBUS, and SIGILL signals)
     faulthandler.enable()
 

@@ -3,7 +3,6 @@ import sys
 import time
 
 import numpy
-import tensorflow as tf
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
@@ -17,6 +16,7 @@ except (ModuleNotFoundError, ImportError) as e:
     import exception
     import util
     from parsing.corpus import extract_text_from_combined_tokens
+
 
 def translate_batch(session, sampler, x, x_mask, max_translation_len,
                     normalization_alpha):
@@ -55,6 +55,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
             # does its own tiling internally at the connection points.
             feed_dict[model.inputs.x] = x
             feed_dict[model.inputs.x_mask] = x_mask
+            logging.info(f"x, x_mask in translate {x.shape}, {x_mask.shape}, {x}, {x_mask}")
         feed_dict[model.inputs.training] = False
 
     # Feed inputs to the sampler.
@@ -119,8 +120,8 @@ def translate_file(input_file, output_file, session, sampler, config,
         beams = []
         for x in minibatches:
             y_dummy = numpy.zeros(shape=(len(x), 1))
-            x, x_mask, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, config.factors,
-                                                maxlen=None)
+            x, x_mask, _, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, None, config.factors,
+                                                         maxlen=None)
             sample = translate_batch(session, sampler, x, x_mask,
                                      max_translation_len, normalization_alpha)
             beams.extend(sample)
@@ -137,15 +138,20 @@ def translate_file(input_file, output_file, session, sampler, config,
                 num = num_prev_translated + i
                 for sent, cost in beam:
                     translation = util.seq2words(sent, num_to_target)
+                    logging.info(f"Translation {translation}")
                     if config.valid_remove_parse:
                         translation = extract_text_from_combined_tokens(translation)
+                    logging.info(f"Translation without {translation}")
                     line = "{} ||| {} ||| {}\n".format(num, translation,
                                                        str(cost))
                     output_file.write(line)
             else:
                 best_hypo, cost = beam[0]
                 line = util.seq2words(best_hypo, num_to_target) + '\n'
+                # logging.info(line[:-1])
                 output_file.write(line)
+            if (i + 1) % 100:
+                output_file.flush()
 
     _, _, _, num_to_target = util.load_dictionaries(config)
 
@@ -171,4 +177,4 @@ def translate_file(input_file, output_file, session, sampler, config,
 
     duration = time.time() - start_time
     logging.info('Translated {} sents in {} sec. Speed {} sents/sec'.format(
-        num_translated, duration, num_translated/duration))
+        num_translated, duration, num_translated / duration))

@@ -167,36 +167,36 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
-            print_ops = []
-            print_ops.append(
-                tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[..., :10]], "attn_mask " + self.name, 50, 100))
-            print_ops.append(
-                tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[..., :10]], "attn_logits " + self.name, 50,
-                                   100))
-            print_ops.append(
-                tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
-            print_ops.append(
-                tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "queries " + self.name, 50, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "keys " + self.name, 50, 100))
-            if "cross" in self.name:
-                print_ops = []
-            with tf.control_dependencies(print_ops):
-                attn_logits += attn_mask
+            # print_ops = []
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask[..., :10]], "attn_mask " + self.name, 50, 100))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[..., :10]], "attn_logits " + self.name, 50,
+            #                        100))
+            # # print_ops.append(
+            # #     tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
+            # # print_ops.append(
+            # #     tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "queries " + self.name, 50, 100))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "keys " + self.name, 50, 100))
+            # # if "cross" in self.name:
+            # #     print_ops = []
+            # with tf.control_dependencies(print_ops):
+            attn_logits += attn_mask
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)
         # Optionally apply dropout:
         if self.dropout_attn > 0.0:
             attn_weights = tf.compat.v1.layers.dropout(attn_weights, rate=self.dropout_attn, training=self.training)
-        print_ops = []
-        print_ops.append(
-            tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[..., :10]], "attn_weights " + self.name, 50,
-                               100))
-        if "cross" in self.name:
-            print_ops = []
-        with tf.control_dependencies(print_ops):
-            # Weigh attention values
-            weighted_memories = tf.matmul(attn_weights, values)
+        # print_ops = []
+        # print_ops.append(
+        #     tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[..., :10]], "attn_weights " + self.name, 50,
+        #                        100))
+        # if "cross" in self.name:
+        #     print_ops = []
+        # with tf.control_dependencies(print_ops):
+        # Weigh attention values
+        weighted_memories = tf.matmul(attn_weights, values)
         return weighted_memories
 
     def forward(self, query_context, memory_context, attn_mask, layer_memories):

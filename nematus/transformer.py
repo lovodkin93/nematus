@@ -1,9 +1,9 @@
 """Adapted from Nematode: https://github.com/demelin/nematode """
-
 import sys
-import tensorflow as tf
 
-from sparse_sgcn import gcn, GCN
+import tensorflow as tf
+from sparse_sgcn import GCN
+import logging
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
@@ -16,13 +16,13 @@ try:
     from . import tf_utils
     from .transformer_blocks import AttentionBlock, FFNBlock
     from .transformer_layers import \
-    EmbeddingLayer, \
-    MaskedCrossEntropy, \
-    get_right_context_mask, \
-    get_positional_signal, \
-    get_tensor_from_times, \
-    get_all_times, \
-    EdgeConstrain
+        EmbeddingLayer, \
+        MaskedCrossEntropy, \
+        get_right_context_mask, \
+        get_positional_signal, \
+        get_tensor_from_times, \
+        get_all_times, \
+        EdgeConstrain
     from .util import load_dict, parse_transitions
     from .tensorflow.python.ops.ragged.ragged_util import repeat
 except (ModuleNotFoundError, ImportError) as e:
@@ -42,11 +42,13 @@ except (ModuleNotFoundError, ImportError) as e:
     from util import load_dict, parse_transitions
     from tensorflow.python.ops.ragged.ragged_util import repeat
 
+MASK_ATTEN_VAL = -1e9
 INT_DTYPE = tf.int32
 FLOAT_DTYPE = tf.float32
 
 print("Delete squash")
 SQUASH = not True
+
 
 class Transformer(object):
     """ The main transformer model class. """
@@ -70,12 +72,13 @@ class Transformer(object):
 
         # Convert from time-major to batch-major, handle factors
         self.source_ids, \
-            self.source_mask, \
-            self.target_ids_in, \
-            self.target_ids_out, \
-            self.target_mask, \
-            self.edges, \
-            self.labels = self._convert_inputs(self.inputs)
+        self.source_mask, \
+        self.target_ids_in, \
+        self.target_ids_out, \
+        self.target_mask, \
+        self.edges, \
+        self.labels, \
+        self.parents = self._convert_inputs(self.inputs)
         # self.source_ids, \
         #     self.source_mask, \
         #     self.target_ids_in, \
@@ -101,11 +104,12 @@ class Transformer(object):
             with tf.compat.v1.name_scope('{:s}_encode'.format(self.name)):
                 enc_output, cross_attn_mask = self.enc.encode(
                     self.source_ids, self.source_mask)
+
             # Decode into target sequences
             with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
                 logits = self.dec.decode_at_train(self.target_ids_in,
                                                   enc_output,
-                                                  cross_attn_mask, self.edges, self.labels)
+                                                  cross_attn_mask, self.edges, self.labels, self.parents)
 
             original_mask_shape = tf.shape(self.target_mask)
             if not SQUASH and self.config.target_graph:
@@ -119,29 +123,34 @@ class Transformer(object):
                 #                        200))
                 # print_ops.append(
                 #     tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask],
-                #                        "target_mask for loss", 50, 200))
+                #                        "arget_mask for loss", 50, 200))
                 # with tf.control_dependencies(print_ops):
-                self.target_mask = tf.minimum(repeat(self.target_mask, timesteps, 0), tf.tile(tf.eye(timesteps), [num_sentences, 1]))
+                self.target_mask = tf.minimum(repeat(self.target_mask, timesteps, 0),
+                                              tf.tile(tf.eye(timesteps), [num_sentences, 1]))
 
-            print_ops = []
-            # def printer(logits):
-            #     print([self.target_tokens[i] for i in tf.math.argmax(logits[0, :, :])]
-            #           )
-            #     return [1]
-            first_argmax = tf.math.argmax(logits[0, :, :], axis=-1)
-            argmax = tf.math.argmax(tf.compat.v1.boolean_mask(logits, self.target_mask > 0), axis=-1)
-            # # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out[0,:]], "target_ids_out", 5000, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(logits), logits[0,0,:]], "logits shapes", 5000, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(argmax), argmax, self.target_ids_out[0,:]], "masked predictions and targets", 5000, 100))
-            print_ops.append(tf.compat.v1.Print([], [tf.shape(first_argmax), first_argmax, self.target_ids_out[0,:]], "predictions and targets", 5000, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.compat.v1.py_func(printer, [logits], tf.int32)], "printed labels", 5000, 100))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 200))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask], "target_mask for l oss", 50, 200))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), self.target_mask[...,-3:]], "target_mask ends for loss", 50, 200))
-            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
-            with tf.control_dependencies(print_ops):
-                logits = logits * 1 #TODO delete
+            # print_ops = []
+            # # def printer(logits):
+            # #     print([self.target_tokens[i] for i in tf.math.argmax(logits[0, :, :])]
+            # #           )
+            # #     return [1]
+            # first_argmax = tf.math.argmax(logits[0, :, :], axis=-1)
+            # argmax = tf.math.argmax(tf.compat.v1.boolean_mask(logits, self.target_mask > 0), axis=-1)
+            # # # logits = tf.compat.v1.Print(logits, [tf.shape(self.target_ids_in)], "target_ids_in", 3)
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out[0, :]], "target_ids_out",
+            #                        5000, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(logits), logits[0, 0, :]], "logits shapes", 5000, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(argmax), argmax, self.target_ids_out[0, :]],
+            #                                     "masked predictions and targets", 5000, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(first_argmax), first_argmax, self.target_ids_out[0, :]],
+            #                                     "predictions and targets", 5000, 100))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.compat.v1.py_func(printer, [logits], tf.int32)], "printed labels", 5000, 100))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_out), self.target_ids_out], "target_ids_out", 50, 200))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), original_mask_shape, self.target_mask], "target_mask for l oss", 50, 200))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_mask), self.target_mask[...,-3:]], "target_mask ends for loss", 50, 200))
+            # # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.target_ids_in), self.target_ids_in], "target_ids_in", 50, 100))
+            # with tf.control_dependencies(print_ops):
+            #     logits = logits * 1  # TODO delete
 
             # Instantiate loss layer(s)
             loss_layer = MaskedCrossEntropy(self.dec_vocab_size,
@@ -206,7 +215,6 @@ class Transformer(object):
                 self._risk = mru.mrt_cost(self._loss_per_sentence, self.scores, self.index, self.config)
 
             self.sampling_utils = SamplingUtils(config)
-
 
     def _build_graph(self):
         """ Defines the model graph. """
@@ -295,18 +303,33 @@ class Transformer(object):
         else:
             edges = None
             labels = None
-
+        if self.config.parent_head:
+            parents = self.process_parents(inputs.parents, batch_major=True)
+        else:
+            parents = None
         # target_ids_in is a bit more complicated since we need to insert
         # the special <GO> symbol (with value 1) at the start of each sentence
         max_len, batch_size = tf.shape(input=inputs.y)[0], tf.shape(input=inputs.y)[1]
         go_symbols = tf.fill(value=1, dims=[1, batch_size])
         tmp = tf.concat([go_symbols, inputs.y], 0)
         tmp = tmp[:-1, :]
-        target_ids_in = tf.transpose(a=tmp, perm=[1,0])
+        target_ids_in = tf.transpose(a=tmp, perm=[1, 0])
         return (source_ids, source_mask, target_ids_in, target_ids_out,
-                target_mask, edges, labels)
+                target_mask, edges, labels, parents)
         # return (source_ids, source_mask, target_ids_in, target_ids_out,
         #         target_mask, edge_labels, bias_labels, general_edge_mask, general_bias_mask)
+
+    def process_parents(self, parents, batch_major=False):
+        with tf.compat.v1.name_scope('process_parents'):
+            if batch_major:
+                parents = tf.transpose(a=parents, perm=[2, 0, 1])
+            parents = tf.maximum(-parents, MASK_ATTEN_VAL)
+            parents = tf.expand_dims(parents, 1)
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(parents), parents], "processed parents", 100, 200))
+            # with tf.control_dependencies(print_ops):
+            #     parents = parents * 1
+            return parents
 
 
 class TransformerEncoder(object):
@@ -375,7 +398,7 @@ class TransformerEncoder(object):
             _, time_steps, depth = tf_utils.get_shape_list(source_embeddings)
             # Transform input mask into attention mask
             inverse_mask = tf.cast(tf.equal(source_mask, 0.0), dtype=FLOAT_DTYPE)
-            attn_mask = inverse_mask * -1e9
+            attn_mask = inverse_mask * MASK_ATTEN_VAL
             # Expansion to shape [batch_size, 1, 1, time_steps] is needed for
             # compatibility with attention logits
             attn_mask = tf.expand_dims(tf.expand_dims(attn_mask, 1), 1)
@@ -389,7 +412,8 @@ class TransformerEncoder(object):
             # Apply dropout
             if self.config.transformer_dropout_embeddings > 0:
                 source_embeddings = tf.compat.v1.layers.dropout(source_embeddings,
-                                                      rate=self.config.transformer_dropout_embeddings, training=self.training)
+                                                                rate=self.config.transformer_dropout_embeddings,
+                                                                training=self.training)
             return source_embeddings, self_attn_mask, cross_attn_mask
 
         with tf.compat.v1.variable_scope(self.name):
@@ -403,6 +427,7 @@ class TransformerEncoder(object):
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
         return enc_output, cross_attn_mask
+
 
 class TransformerDecoder(object):
     """ The decoder module used within the transformer model. """
@@ -458,8 +483,10 @@ class TransformerDecoder(object):
         # Initialize gcn layers
         if self.config.target_graph:
             for layer_id in range(self.config.target_gcn_layers):
-                self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1, bias_labels_num=self.labels_num, edge_labels_num=3,
-                    activation=tf.nn.relu, use_bias=self.config.target_labels_num > 0, gate=self.config.target_gcn_gating)
+                self.gcn_stack[layer_id] = GCN(self.embedding_layer.hidden_size, vertices_num=self.config.maxlen + 1,
+                                               bias_labels_num=self.labels_num, edge_labels_num=3,
+                                               activation=tf.nn.relu, use_bias=self.config.target_labels_num > 0,
+                                               gate=self.config.target_gcn_gating)
         # Initialize layers
         with tf.compat.v1.variable_scope(self.name):
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -493,9 +520,10 @@ class TransformerDecoder(object):
                 self.decoder_stack[layer_id]['cross_attn'] = cross_attn_block
                 self.decoder_stack[layer_id]['ffn'] = ffn_block
 
-    def decode_at_train(self, target_ids, enc_output, cross_attn_mask, edges, labels):
+    def decode_at_train(self, target_ids, enc_output, cross_attn_mask, edges, labels, parent_mask):
         """ Returns the probability distribution over target-side tokens conditioned on the output of the encoder;
          performs decoding in parallel at training time. """
+
         def _decode_all(target_embeddings):
             """ Decodes the encoder-generated representations into target-side logits in parallel. """
             dec_input = target_embeddings
@@ -509,12 +537,12 @@ class TransformerDecoder(object):
                         inputs = [dec_input, edges]
 
                     dec_input = self.gcn_stack[layer_id].apply(inputs)
-                    dec_input += orig_input   # residual connection
+                    dec_input += orig_input  # residual connection
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_input), dec_input], "dec_input", 50, 100))
                 # print_ops.append(tf.compat.v1.Print([], [timesteps], "timesteps", 50, 100))
                 # with tf.control_dependencies(print_ops):
-                dec_input = dec_input[:, :timesteps, :] # slice tensor to save space
+                dec_input = dec_input[:, :timesteps, :]  # slice tensor to save space
                 # make sure slicing works (for enc_output too)
 
             # TODO make sure timesteps is not repeated when conditionally predicting
@@ -533,7 +561,8 @@ class TransformerDecoder(object):
                 # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask], "self_attn_mask"))
                 # with tf.control_dependencies(print_ops):
                 dec_output, _ = self.decoder_stack[layer_id][
-                    'self_attn'].forward(dec_output, None, self_attn_mask) # avoid attending sentences with no words and words after the sentence (zeros)
+                    'self_attn'].forward(dec_output, None,
+                                         self_attn_mask)  # avoid attending sentences with no words and words after the sentence (zeros)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output[0,:,-5:]], "part of dec_output "+ str(layer_id), 50, 300))
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,:,-5:]], "part of enc_output "+ str(layer_id), 50, 300))
@@ -541,8 +570,8 @@ class TransformerDecoder(object):
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:10],cross_attn_mask[1,:10],cross_attn_mask[-2,:10],cross_attn_mask[-1,:10]], "cross attention" + str(layer_id), 50, 100))
                 # with tf.control_dependencies(print_ops):
                 dec_output, _ = \
-                self.decoder_stack[layer_id]['cross_attn'].forward(
-                dec_output, enc_output, cross_attn_mask)
+                    self.decoder_stack[layer_id]['cross_attn'].forward(
+                        dec_output, enc_output, cross_attn_mask)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 # with tf.control_dependencies(print_ops):
@@ -555,7 +584,7 @@ class TransformerDecoder(object):
             for parallel decoding. """
 
             if self.config.target_graph:
-                #padding == self.config.maxlen - tf.shape(target_ids)[1] == self.config.maxlen - tf.shape(positional_signal)
+                # padding == self.config.maxlen - tf.shape(target_ids)[1] == self.config.maxlen - tf.shape(positional_signal)
                 padding = self.config.maxlen + 1 - timesteps
                 # printops = []
                 # printops.append(tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[:4,:40]], "target_ids shape and two first in batch", 50, 300))
@@ -572,7 +601,8 @@ class TransformerDecoder(object):
 
             if self.config.transformer_dropout_embeddings > 0:
                 target_embeddings = tf.compat.v1.layers.dropout(target_embeddings,
-                                                      rate=self.config.transformer_dropout_embeddings, training=self.training)
+                                                                rate=self.config.transformer_dropout_embeddings,
+                                                                training=self.training)
             return target_embeddings
 
         def _decoding_function():
@@ -598,7 +628,6 @@ class TransformerDecoder(object):
                 enc_output = tf.transpose(a=enc_output, perm=[1, 0, 2])
                 cross_attn_mask = tf.transpose(a=cross_attn_mask, perm=[3, 1, 2, 0])
 
-
             # printops = []
             # printops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output], "enc_output unchanged", 300, 50))
             # printops.append(
@@ -616,47 +645,62 @@ class TransformerDecoder(object):
             # printops.append(tf.compat.v1.Print([], [tf.shape(input=target_ids), target_ids], "target_ids are they like decoded x (if not should decoded x lose the beginning 1=<GO>?)", 300, 50))
             # with tf.control_dependencies(printops):
             self_attn_mask = get_right_context_mask(timesteps)
-            printops = []
-            printops.append(
-                tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[..., :10]], "self_attn_mask", 300, 50))
-            tf.compat.v1.Print([], [tf.shape(edges), edges.indices], "edges", 300, 50)
-            with tf.control_dependencies(printops):
-                positional_signal = get_positional_signal(timesteps, self.config.embedding_size, FLOAT_DTYPE)
+            # printops = []
+            # printops.append(
+            #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[..., :10]], "self_attn_mask", 300, 50))
+            # tf.compat.v1.Print([], [tf.shape(edges), edges.indices], "edges", 300, 50)
+            # with tf.control_dependencies(printops):
+            positional_signal = get_positional_signal(timesteps, self.config.embedding_size, FLOAT_DTYPE)
             if self.config.target_graph:
                 cross_attn_mask = repeat(cross_attn_mask, timesteps, 0)
                 enc_output = repeat(enc_output, timesteps, 0)
+                if self.config.sequential:
+                    unconditional_attn_mask = tf.tile(self_attn_mask, [batch_size * timesteps, 1, 1, 1])
 
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(unconditional_attn_mask), unconditional_attn_mask[:-3,...,4:6,3:10]],
+                #                        "unconditional_attn_mask", 300, 150))
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(self_attn_mask), self_attn_mask[:-3,...,4:6,3:10]],
+                #                        "before tiling self_attn_mask", 300, 150))
+                # with tf.control_dependencies(printops):
+                self_attn_mask = tf.tile(self_attn_mask, [1, 1, batch_size, 1])
+                # printops = []
+                # printops.append(
+                #     tf.compat.v1.Print([],
+                #                        [tf.shape(self_attn_mask), self_attn_mask[:-3,...,4:6,3:10]],
+                #                        "before transpose self_attn_mask", 300, 150))
+                # with tf.control_dependencies(printops):
+                self_attn_mask = tf.transpose(self_attn_mask, [2, 1, 0, 3])
                 attention_rules = []
                 if self.config.parent_head:
-                    raise NotImplementedError
-                    parent_mask = NotImplementedError  # [batch_size, 1(head), token, what it can attend to]
                     attention_rules.append(parent_mask)
 
                 if self.config.neighbor_head:
-                    neighbor_head_mask = edges * -1e9 # [batch_size, 1(head), token, what it can attend to]
+                    raise NotImplementedError
+                    neighbor_head_mask = edges * MASK_ATTEN_VAL  # [batch_size, 1(head), token, what it can attend to]
                     attention_rules.append(neighbor_head_mask)
 
                 if attention_rules:
-                    attention_rules += [tf.zeros_like(attention_rules[0]) for _ in
-                                        range(self.config.transformer_num_heads - len(attention_rules))]
-                    self_attn_mask = tf.tile(self_attn_mask, [1, self.config.transformer_num_heads, 1,
-                                                              1])  # [batch_size, heads, token, what it can attend to]
-                    self_attn_mask += tf.concat(attention_rules)
-                # self_attn_mask = None
-                # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
+                    self_attn_mask = self.combine_attention_rules(attention_rules, self_attn_mask)
 
-                # self_attn_mask = None
-                # self_attn_mask = repeat(self_attn_mask, batch_size, 2)
+                if self.config.sequential:
+                    printops = []
 
-                # with tf.control_dependencies(printops):
-                if self.config.sequential:
-                    print("sequential")
-                    unconditional_attn_mask = tf.tile(self_attn_mask, [batch_size * timesteps, 1, 1, 1])
-                self_attn_mask = tf.tile(self_attn_mask, [1, 1, batch_size, 1])
-                self_attn_mask = tf.transpose(self_attn_mask, [2, 1, 0, 3])
-                # print("BACKWARD ATTENTION ONLY ATTENTION")
-                if self.config.sequential:
-                    self_attn_mask = tf.minimum(self_attn_mask, unconditional_attn_mask)
+                    printops.append(
+                        tf.compat.v1.Print([],
+                                           [tf.shape(unconditional_attn_mask),
+                                            unconditional_attn_mask[:-3, ..., 4:6, 3:10]],
+                                           "unconditional_attn_mask", 300, 150))
+                    printops.append(
+                        tf.compat.v1.Print([],
+                                           [tf.shape(self_attn_mask), self_attn_mask[:-3, ..., 4:6, 3:10]],
+                                           "self_attn_mask before combining with uncond", 300, 150))
+                    with tf.control_dependencies(printops):
+                        self_attn_mask = tf.minimum(self_attn_mask, unconditional_attn_mask)
 
                 # self_attn_mask = tf.reshape(self_attn_mask, [batch_size  * timesteps, -1, timesteps, 1])
                 target_ids = repeat(target_ids, timesteps, 0)
@@ -672,40 +716,39 @@ class TransformerDecoder(object):
 
                 # edges = tf.cast(edge_times, dtype=tf.float32)
                 # labels = tf.cast(labels_times, dtype=tf.float32)
-                printops = []
+                # printops = []
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[:,:,:,:10]], "cross_attn_mask", 300, 50))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(unconditional_attn_mask), unconditional_attn_mask[:, :, :5, :5]], "unconditional_attn_mask",
+                # #                        300, 1000))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:, :, :5, :5]], "masked attention", 300, 1000))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(get_right_context_mask(timesteps)), get_right_context_mask(timesteps)[:, :, :, :10]], "unchanged masked attention", 300, 50))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(diagonals_mask), diagonals_mask[:,:10]], "diagonal masks (for targets)", 300, 50))
+                #
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,...],
+                # #                             enc_output[timesteps, ...]], "enc_output", 300, 50))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(positional_signal), positional_signal[0, ..., :10],
+                # #                             positional_signal[..., : 10]], "positional_signal", 300, 50))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:,:,:10], cross_attn_mask[timesteps,:,:,:10]], "cross_attn_mask", 300, 50))
                 # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[:,:,:,:10]], "cross_attn_mask", 300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(unconditional_attn_mask), unconditional_attn_mask[:, :, :5, :5]], "unconditional_attn_mask",
-                #                        300, 1000))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[:, :, :5, :5]], "masked attention", 300, 1000))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(get_right_context_mask(timesteps)), get_right_context_mask(timesteps)[:, :, :, :10]], "unchanged masked attention", 300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(diagonals_mask), diagonals_mask[:,:10]], "diagonal masks (for targets)", 300, 50))
-
-
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,...],
-                #                             enc_output[timesteps, ...]], "enc_output", 300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(positional_signal), positional_signal[0, ..., :10],
-                #                             positional_signal[..., : 10]], "positional_signal", 300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:,:,:10], cross_attn_mask[timesteps,:,:,:10]], "cross_attn_mask", 300, 50))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[0, :, :5, :5], self_attn_mask[timesteps, :, :5, :5]], "masked attention", 300, 1000))
-                # printops.append(
-                #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[-1,:10], target_ids[-1 - timesteps,:10]], "target_ids in", 300, 50))
+                #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[0, :, :5, :5], self_attn_mask[-1, :, :5, :5]], "masked attention", 300, 50))
+                # # printops.append(
+                # #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[-1,:10], target_ids[-1 - timesteps,:10]], "target_ids in", 300, 50))
                 # with tf.control_dependencies(printops):
                 logits = _decoding_function()
                 if not SQUASH:
-                    print("not squashing loss")
+                    logging.info("not squashing loss")
                 else:
                     diag = tf.range(timesteps)
                     diag = tf.expand_dims(diag, 1)
-                    diag = tf.concat([diag, diag], 1) # [[1,1],[2,2]...[timesteps,timesteps]]
+                    diag = tf.concat([diag, diag], 1)  # [[1,1],[2,2]...[timesteps,timesteps]]
                     diag = repeat(diag, self.config.target_vocab_size, 0)
 
                     vocab_locs = tf.range(self.config.target_vocab_size)
@@ -732,14 +775,13 @@ class TransformerDecoder(object):
                     # with tf.control_dependencies(printops):
                     logits = tf.gather_nd(logits, indices)
 
-
                     # printops = []
                     # vocab_size = self.config.target_vocab_size
                     # printops.append(
                     #     tf.compat.v1.Print([],
                     #                        [tf.shape(indices), indices[0], indices[vocab_size],
                     #                         indices[vocab_size*2],indices[vocab_size*3],indices[vocab_size*4]],
-                                           # "indices top gather logits (every vocab size)", 300, 100))
+                    # "indices top gather logits (every vocab size)", 300, 100))
                     # tmp = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
                     # printops.append(
                     #     tf.compat.v1.Print([],
@@ -757,3 +799,33 @@ class TransformerDecoder(object):
             #     logits = logits * 1 + 0
 
         return logits
+
+    def combine_attention_rules(self, attention_rules, self_attn_mask):
+        # logging.info(f"parents shape {attention_rules[0].shape} mask shape {self_attn_mask}")
+        attention_rules += [tf.zeros_like(attention_rules[0]) for _ in
+                            range(self.config.transformer_num_heads - len(attention_rules))]
+        self_attn_mask = tf.tile(self_attn_mask, [1, self.config.transformer_num_heads, 1,
+                                                  1])  # [batch_size, heads, token, what it can attend to]
+        # printops = []
+        # printops.append(
+        #     tf.compat.v1.Print([], [tf.shape(rule) for rule in attention_rules], "for min new attention mask rules shapes",
+        #                        300, 50))
+        # printops.append(
+        #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[0, ..., :10]], "for min new attention mask",
+        #                        300, 50))
+        # with tf.control_dependencies(printops):
+        res_attn_mask = tf.minimum(self_attn_mask, tf.concat(attention_rules, axis=1))
+
+        # printops = []
+        # # printops.append(
+        # #     tf.compat.v1.Print([], [tf.shape(rule) for rule in attention_rules], "new attention mask rules shapes",
+        # #                        300, 50))
+        # # printops.append(
+        # #     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask[0, ..., :10]], "new attention mask",
+        # #                        300, 50))
+        # printops.append(
+        #     tf.compat.v1.Print([], [tf.shape(res_attn_mask), res_attn_mask[-1, 0, ..., :10]], "res attention mask (reasonable numbers?) has more than one parent?",
+        #                        300, 50))
+        # with tf.control_dependencies(printops):
+        #     res_attn_mask = res_attn_mask * 1
+        return res_attn_mask

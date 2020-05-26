@@ -1,4 +1,7 @@
-# based on https://github.com/iclementine/stackLSTM-parser/
+"""
+Convert text and conllu to trans(1) file.'
+ conllu read based on https://github.com/iclementine/stackLSTM-parser/
+"""
 
 import conllu
 import mmap
@@ -273,6 +276,7 @@ def convert_conllu_transitions(path, reader=FastConlluReader):
 
 def combine_bpe_transitions(bpe_path, trans_path, ids_path=None, split_actions=True):
     letters_pat = re.compile(r"[\W_]+")
+    print(f"reading {trans_path}")
     try:
         with open(trans_path, "rb") as fl:
             trans = pickle.load(fl)

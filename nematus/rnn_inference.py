@@ -53,7 +53,7 @@ class ModelAdapter:
             housekeeping before calling that function to do the actual work.
 
             Args:
-                step_target_ids: Tensor with shape (batch_size)
+                step_target_ids: Tensor with shape (batch_size)sampler.outputs, feed_dict=feed_dict)
                 current_time_step: scalar Tensor.
                 memories: dictionary (see top-level class description)
 
@@ -86,7 +86,7 @@ class ModelAdapter:
             d = self._model.decoder
 
             # The first time step is a special case for the RNN since there is
-            # no (valid) input token and no word embeddings to lookup. Like in
+            # no (valid) input token and no words embeddings to lookup. Like in
             # training, we use zero-valued dummy embeddings.
             # This differs from the Transformer model, which has a BOS token
             # (called <GO>) with an associated embedding that is learned during
