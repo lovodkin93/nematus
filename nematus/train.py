@@ -109,7 +109,8 @@ def load_data(config):
             remove_parse=remove_parse,
             target_graph=config.target_graph,
             target_labels_num=config.target_labels_num,
-            splitted_action=config.split_transitions
+            splitted_action=config.split_transitions,
+            ignore_empty=True
         )
     else:
         logging.info('no validation set loaded')
@@ -615,6 +616,12 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
         logging.info(f"Source len {len(source_sents)}")
+        if not source_sents or not source_sents[0]:
+            logging.error(f"Excepted source sents instead got: {source_sents}, target: {target_sents}, seen: {len(ce_vals)}")
+            logging.info(f"source {config.valid_source_dataset}")
+            logging.info(f"target {config.valid_target_dataset}")
+            logging.info(f"source dict {config.source_dicts}")
+            logging.info(f"target dict {config.target_dict}")
         if len(source_sents[0][0]) != config.factors:
             logging.error('Mismatch between number of factors in settings '
                           '({0}) and number present in data ({1})'.format(

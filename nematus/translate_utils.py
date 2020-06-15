@@ -55,7 +55,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
             # does its own tiling internally at the connection points.
             feed_dict[model.inputs.x] = x
             feed_dict[model.inputs.x_mask] = x_mask
-            logging.info(f"x, x_mask in translate {x.shape}, {x_mask.shape}, {x}, {x_mask}")
+            # logging.info(f"x, x_mask in translate {x.shape}, {x_mask.shape}, {x}, {x_mask}")
         feed_dict[model.inputs.training] = False
 
     # Feed inputs to the sampler.

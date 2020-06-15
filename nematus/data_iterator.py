@@ -85,10 +85,12 @@ class TextIterator:
                  preprocess_script=None,
                  target_graph=False,
                  target_labels_num=None,
-                 splitted_action=False):
+                 splitted_action=False,
+                 ignore_empty=False):
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
+        self.ignore_empty = ignore_empty
         if self.preprocess_script:
             logging.info("Executing external preprocessing script...")
             proc = subprocess.Popen(self.preprocess_script)
@@ -226,8 +228,9 @@ class TextIterator:
                 if self.remove_parse:
                     ss = extract_text_from_combined_tokens(ss)
                     tt = extract_text_from_combined_tokens(tt)
-                self.source_buffer.append(ss)
-                self.target_buffer.append(tt)
+                if (ss and tt) or not self.ignore_empty:
+                    self.source_buffer.append(ss)
+                    self.target_buffer.append(tt)
                 if len(self.source_buffer) == self.k:
                     break
 
