@@ -236,7 +236,7 @@ def train(config, sess):
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
         for source_sents, target_sents in text_iterator:
-            logging.info(f"Source len {len(source_sents)}")
+            # logging.info(f"Source len {len(source_sents)}")
             logging.info("Start batch {0}".format(progress.uidx))
             if len(source_sents[0][0]) != config.factors:
                 logging.error(
@@ -245,6 +245,7 @@ def train(config, sess):
                 sys.exit(1)
             if config.target_graph:
                 target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
+                logging.info(f"max len {max([len(x) for x in target_sents])}")
                 # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
                 # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
                 # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
@@ -252,7 +253,7 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
-            logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
+            # logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
             # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
             # logging.info("Source sents " + str(source_sents) + " .")
             # logging.info("Target sents " + str(target_sents) + " .")
@@ -422,7 +423,7 @@ def train(config, sess):
                     config.saveto, progress.uidx)
                 progress.save_to_json(progress_path)
                 break
-            logging.info("Loop done")
+            # logging.info("Loop done")
         if progress.estop:
             logging.info("Stopping")
             break

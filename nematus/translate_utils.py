@@ -122,6 +122,7 @@ def translate_file(input_file, output_file, session, sampler, config,
             y_dummy = numpy.zeros(shape=(len(x), 1))
             x, x_mask, _, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, None, config.factors,
                                                          maxlen=None)
+            # logging.info(f"Batch size {x.shape}, minibatch_size {minibatch_size}, maxibatch_size {maxibatch_size}")
             sample = translate_batch(session, sampler, x, x_mask,
                                      max_translation_len, normalization_alpha)
             beams.extend(sample)

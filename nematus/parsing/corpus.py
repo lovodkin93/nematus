@@ -10,6 +10,20 @@ import os
 import pickle
 # import torchtext
 
+import unicodedata as ud
+
+latin_letters= {}
+
+def is_latin(uchr):
+    try:
+        return latin_letters[uchr]
+    except KeyError:
+         return latin_letters.setdefault(uchr, 'LATIN' in ud.name(uchr))
+
+def only_roman_chars(unistr):
+    return all(is_latin(uchr)
+           for uchr in unistr
+           if uchr.isalpha()) # isalpha suggested by John Machin
 
 class ConllToken(object):
     """
@@ -259,17 +273,18 @@ class CorpusReader(object):
                 self.ids = set((int(id) for id in fl.read().split()))
         else:
             self.ids = ids
-        self.skipped = 0
+        if not self.ids:
+            print("No ids:", self.ids, ids, "file name", fname)
 
     def __iter__(self):
         with open(self.fname) as fl:
             for i, line in enumerate(fl):
                 if (not self.ids) or i in self.ids:
                     line = line.strip().split()
+                    #line = [' ' if x == '' else x for x in line]
                     yield line
                 else:
-                    self.skipped += 1
-        print("skipped", self.skipped, "sentences")
+                    print("Skipped", i)
 
 
 def convert_conllu_transitions(path, reader=FastConlluReader):
@@ -284,13 +299,13 @@ def combine_bpe_transitions(bpe_path, trans_path, ids_path=None, split_actions=T
     print(f"reading {trans_path}")
     try:
         with open(trans_path, "rb") as fl:
-            transitions = pickle.load(fl)
+            trans = pickle.load(fl)
     except pickle.UnpicklingError:
-        transitions = CorpusReader(trans_path)
+        trans = CorpusReader(trans_path)
     if ids_path is None:
         ids_path = trans_path + ".ids"
     bpes = CorpusReader(bpe_path, ids_path)
-    for line_num, (bpe_line, trans_line) in enumerate(zip(bpes, transitions)):
+    for line_num, (bpe_line, trans_line) in enumerate(zip(bpes, trans)):
         line = []
         bpe_line = bpe_line
         bpe_iter = iter(bpe_line)
@@ -304,15 +319,18 @@ def combine_bpe_transitions(bpe_path, trans_path, ids_path=None, split_actions=T
                     word_bpes.append(bpe)
                     if "@@" not in bpe:
                         break
-                assert not set(letters_pat.sub('', "".join(word_bpes).lower().strip())) - set(trans[1].lower().strip()),\
-                    "characters in bpe " + \
-                    " ".join(word_bpes) + \
-                    " and trans " + trans[1] + \
-                    " don't match. Line " +str(line_num) +\
-                    "Make sure tokenization " \
-                    "is correct:\n" + " ".join(bpe_line) + \
-                    "\n" + \
-                    str(trans_line)
+                # diff = set(letters_pat.sub('', "".join(word_bpes).lower().strip())) - set(trans[1].lower().strip())
+                # assert (not diff) or only_roman_chars(diff),\
+                #     "characters in bpe " + \
+                #     " ".join(word_bpes) + \
+                #     " and trans " + trans[1] + \
+                #     " don't match. line " + str(line_num) + \
+                #     "mismatch:" + \
+                #     str(diff) + \
+                #     "make sure tokenization " \
+                #     "is correct:\n" + " ".join(bpe_line) + \
+                #     "\n" + \
+                #     str(trans_line)
                 line += word_bpes
             elif trans[0] == ConllSent.REDUCE_L or ConllSent.REDUCE_R:
                 if split_actions:
@@ -349,8 +367,8 @@ def extract_text_from_combined_tokens(tokens):
     return text_tokens
 
 
-def combine_conllu_bpe(conllu_path, bpe_path, trans_out_path, combined_path, split_actions=True, force=False, force_combine=False):
-    if (not force) and (not force_combine) and os.path.isfile(combined_path):
+def combine_conllu_bpe(conllu_path, bpe_path, trans_out_path, combined_path, split_actions=True, force=False):
+    if (not force) and os.path.isfile(combined_path):
         print("Skipping", combined_path, "file already exists.")
         return
     if not os.path.isfile(trans_out_path) or force:
@@ -358,7 +376,7 @@ def combine_conllu_bpe(conllu_path, bpe_path, trans_out_path, combined_path, spl
     # with open(trans_out, "rb") as fl:
     #     trans = pickle.load(fl)
     a = combine_bpe_transitions(bpe_path, trans_out_path, split_actions=split_actions)
-    print(f"Writing to ", combined_path)
+    print(f"Writing {len(combined_path)} sentences to ", combined_path)
     with open(combined_path, "w") as fl:
         for line in a:
             fl.write(" ".join(line) + "\n")
@@ -370,8 +388,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description='Convert text and conllu to trans(1) file.')
     parser.add_argument('--force', '-f', action='store_true',
                         help='If set, replaces output file if exists')
-    parser.add_argument('--force_combine', action='store_true',
-                        help='If set, replaces output file if exists but does not recompute transitions')
     parser.add_argument('--split', '-s', action='store_true',
                         help='If set, transitions are split to edges and labels separately')
     parser.add_argument('--conllu', '-c', help='path to conllu')
@@ -394,7 +410,6 @@ if __name__ == '__main__':
     path = args.conllu
     bpe_path = args.bpe
     split = args.split
-    force_combine = args.force_combine
     if split:
         split_symb = ""
     else:
@@ -404,5 +419,5 @@ if __name__ == '__main__':
         bpe_path))[0] + ".trns" + split_symb + os.path.splitext(os.path.basename(bpe_path))[1]
     # convert_conllu_transitions(path)
     print("Combining", path, "with bpe", bpe_path)
-    combine_conllu_bpe(path, bpe_path, trans_out, combined_path, split_actions=split, force=force, force_combine=force_combine)
+    combine_conllu_bpe(path, bpe_path, trans_out, combined_path, split_actions=split, force=force)
     print("main done")
