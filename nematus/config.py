@@ -377,6 +377,12 @@ class ConfigSpecification:
             help='True if system uses one head to attend any token neighboring current one (default: False)'))
 
         group.append(ParameterSpecification(
+            name='same_scene_head', default=False,
+            visible_arg_names=['--same_scene_head'],
+            action='store_true',
+            help='True if system uses one head to attend only to tokens in the same scene as current one (default: False)'))
+
+        group.append(ParameterSpecification(
             name='target_labels_num', default=None,
             visible_arg_names=['--target_labels_num'],
             type=int,
