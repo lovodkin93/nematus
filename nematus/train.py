@@ -20,7 +20,6 @@ logging.basicConfig(level=level, format='%(levelname)s: %(message)s',  datefmt="
 
 import numpy as np
 import tensorflow as tf
-
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
     ModuleNotFoundError = SystemError
@@ -85,7 +84,8 @@ def load_data(config):
         preprocess_script=config.preprocess_script,
         target_graph=config.target_graph,
         target_labels_num=config.target_labels_num,
-        splitted_action=config.split_transitions
+        splitted_action=config.split_transitions,
+        same_scene_masks=config.same_scene_masks
     )
 
     if config.valid_freq and config.valid_source_dataset and config.valid_target_dataset:
@@ -110,7 +110,8 @@ def load_data(config):
             target_graph=config.target_graph,
             target_labels_num=config.target_labels_num,
             splitted_action=config.split_transitions,
-            ignore_empty=True
+            ignore_empty=True,
+            same_scene_masks=config.valid_same_scene_masks
         )
     else:
         logging.info('no validation set loaded')
@@ -219,6 +220,7 @@ def train(config, sess):
             beam_size=config.beam_size)
 
     # save model options
+    #print("AVIVSL: config.saveto:" + config.saveto)
     write_config_to_json_file(config, config.saveto)
 
     text_iterator, valid_text_iterator = load_data(config)
@@ -235,9 +237,19 @@ def train(config, sess):
         config.max_epochs = progress.eidx + 1
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
-        for source_sents, target_sents in text_iterator:
+        for source_sents, target_sents, same_scene_masks in text_iterator: #TODO: here the separation into sentences occures - need to somehow align the masks here? don't forget the batch is random...
             # logging.info(f"Source len {len(source_sents)}")
-            logging.info("Start batch {0}".format(progress.uidx))
+            # logging.info("Start batch {0}".format(progress.uidx)) # source_sents is a list of sentences, each being a list of lists {l}, where wach such l is a list of size 1 containing an int
+            # source1 = ' '.join([num_to_source[0][word[0]] for word in source_sents[0]])
+            # if len(source_sents) > 2:
+            #     source2 = ' '.join([num_to_source[0][word[0]] for word in source_sents[1]])
+            #     source3 = ' '.join([num_to_source[0][word[0]] for word in source_sents[2]])
+            # # #logging.info("AVIVSL14: num_to_source is {0}".format(num_to_source))
+            # logging.info("AVIVSL10: first sentence is {0}, and its mask is {1}" .format(source1,same_scene_masks[0]))
+            # if len(source_sents) > 2:
+            #     logging.info("AVIVSL10: second sentence is {0}, and its mask is {1}" .format(source2,same_scene_masks[1]))
+            #     logging.info("AVIVSL10: third sentence is {0}, and its mask is {1}" .format(source3,same_scene_masks[2]))
+            # logging.info("AVIVSL13: length of source_sents is {0} and of same_scene_masks is {1}" .format(len(source_sents), len(same_scene_masks)))
             if len(source_sents[0][0]) != config.factors:
                 logging.error(
                     'Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
@@ -615,7 +627,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     ce_vals, token_counts = [], []
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
-    for source_sents, target_sents in text_iterator:
+    for source_sents, target_sents, same_scene_masks in text_iterator:
         logging.info(f"Source len {len(source_sents)}")
         if not source_sents or not source_sents[0]:
             logging.error(f"Excepted source sents instead got: {source_sents}, target: {target_sents}, seen: {len(ce_vals)}")
@@ -703,7 +715,6 @@ if __name__ == "__main__":
 
     # print where faults  happen (SIGSEGV, SIGFPE, SIGABRT, SIGBUS, and SIGILL signals)
     faulthandler.enable()
-
     # Parse command-line arguments.
     config = read_config_from_cmdline()
     logging.info(config)

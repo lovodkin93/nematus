@@ -10,6 +10,7 @@ from parsing.corpus import ConllSent
 from util import reset_dict_vals
 import numpy as np
 import subprocess
+import ast
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
@@ -86,11 +87,13 @@ class TextIterator:
                  target_graph=False,
                  target_labels_num=None,
                  splitted_action=False,
-                 ignore_empty=False):
+                 ignore_empty=False,
+                 same_scene_masks=None):
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
         self.ignore_empty = ignore_empty
+        self.same_scene_masks_orig=same_scene_masks
         if self.preprocess_script:
             logging.info("Executing external preprocessing script...")
             proc = subprocess.Popen(self.preprocess_script)
@@ -98,18 +101,31 @@ class TextIterator:
             logging.info("done")
         if keep_data_in_memory:
             self.source, self.target = FileWrapper(source), FileWrapper(target)
+            if same_scene_masks:
+                self.same_scene_masks = FileWrapper(same_scene_masks)
             if shuffle_each_epoch:
                 r = numpy.random.permutation(len(self.source))
                 self.source.shuffle_lines(r)
                 self.target.shuffle_lines(r)
+                if same_scene_masks:
+                    self.same_scene_masks.shuffle_lines(r)
         elif shuffle_each_epoch:
+            logging.info("AVIVSL11: source is {0} and target is {1} and masks is {2}".format(source,target, same_scene_masks))
             self.source_orig = source
             self.target_orig = target
-            self.source, self.target = shuffle.jointly_shuffle_files(
-                [self.source_orig, self.target_orig], temporary=True)
+            self.same_scene_masks_orig = same_scene_masks
+            if same_scene_masks:
+                self.source, self.target, self.same_scene_masks = shuffle.jointly_shuffle_files(
+                    [self.source_orig, self.target_orig, self.same_scene_masks_orig], temporary=True)
+            else:
+                self.source, self.target = shuffle.jointly_shuffle_files(
+                    [self.source_orig, self.target_orig], temporary=True)
+            #logging.info("AVIVSL12: source is {0} and target is {1} and masks is {2}".format(self.source, self.target, self.same_scene_masks))
         else:
             self.source = fopen(source, 'r')
             self.target = fopen(target, 'r')
+            if same_scene_masks:
+                self.same_scene_masks = fopen(same_scene_masks, 'r')
         self.source_dicts = []
         for source_dict in source_dicts:
             self.source_dicts.append(load_dict(source_dict, model_type))
@@ -166,6 +182,7 @@ class TextIterator:
 
         self.source_buffer = []
         self.target_buffer = []
+        self.same_scene_masks_buffer = []
         self.k = batch_size * maxibatch_size
 
         self.end_of_data = False
@@ -184,20 +201,30 @@ class TextIterator:
             logging.info("done")
             if self.keep_data_in_memory:
                 self.source, self.target = FileWrapper(self.source_orig), FileWrapper(self.target_orig)
+                self.same_scene_masks = FileWrapper(self.same_scene_masks_orig) if self.same_scene_masks_orig else None
             else:
                 self.source = fopen(self.source_orig, 'r')
                 self.target = fopen(self.target_orig, 'r')
+                self.same_scene_masks = fopen(self.same_scene_masks_orig, 'r') if self.same_scene_masks_orig else None
         if self.shuffle:
             if self.keep_data_in_memory:
                 r = numpy.random.permutation(len(self.source))
                 self.source.shuffle_lines(r)
                 self.target.shuffle_lines(r)
+                if self.same_scene_masks:
+                    self.same_scene_masks.shuffle_lines(r)
             else:
-                self.source, self.target = shuffle.jointly_shuffle_files(
-                    [self.source_orig, self.target_orig], temporary=True)
+                if self.same_scene_masks_orig:
+                    self.source, self.target, self.same_scene_masks = shuffle.jointly_shuffle_files(
+                        [self.source_orig, self.target_orig, self.same_scene_masks_orig], temporary=True)
+                else:
+                    self.source, self.target = shuffle.jointly_shuffle_files(
+                        [self.source_orig, self.target_orig], temporary=True)
         else:
             self.source.seek(0)
             self.target.seek(0)
+            if self.same_scene_masks:
+                self.same_scene_masks.seek(0)
 
     def __next__(self):
         if self.end_of_data:
@@ -207,6 +234,7 @@ class TextIterator:
 
         source = []
         target = []
+        same_scene_mask = []
 
         longest_source = 0
         longest_target = 0
@@ -219,18 +247,20 @@ class TextIterator:
             for ss in self.source:
                 ss = ss.split()
                 tt = self.target.readline().split()
-
+                ssm = self.same_scene_masks.readline() if self.same_scene_masks_orig else None #same_scene_mask
                 if self.skip_empty and (len(ss) == 0 or len(tt) == 0):
                     continue
                 if len(ss) > self.maxlen or len(tt) > self.maxlen:
                     continue
 
-                if self.remove_parse:
+                if self.remove_parse: #TODO: ask Leshem - part of his parsing code, right?
                     ss = extract_text_from_combined_tokens(ss)
                     tt = extract_text_from_combined_tokens(tt)
                 if (ss and tt) or not self.ignore_empty:
                     self.source_buffer.append(ss)
                     self.target_buffer.append(tt)
+                    if self.same_scene_masks_orig:
+                        self.same_scene_masks_buffer.append(ast.literal_eval(ssm)) # ast.literal_eval translates a string represting a list of lists into a list of lists
                 if len(self.source_buffer) == self.k:
                     break
 
@@ -247,13 +277,15 @@ class TextIterator:
 
                 _sbuf = [self.source_buffer[i] for i in tidx]
                 _tbuf = [self.target_buffer[i] for i in tidx]
-
+                _ssmbuf = [self.same_scene_masks_buffer[i] for i in tidx] if self.same_scene_masks_orig else None
                 self.source_buffer = _sbuf
                 self.target_buffer = _tbuf
-
+                self.same_scene_masks_buffer = _ssmbuf
             else:
                 self.source_buffer.reverse()
                 self.target_buffer.reverse()
+                if self.same_scene_masks_orig:
+                    self.same_scene_masks_buffer.reverse()
 
         def lookup_token(t, d, unk_val):
             return d[t] if t in d else unk_val
@@ -300,6 +332,11 @@ class TextIterator:
                 else:
                     target.append(tt_indices)
 
+                # read from same_scene_mask file
+                if self.same_scene_masks_orig:
+                    ssm = self.same_scene_masks_buffer.pop()
+                    same_scene_mask.append(ssm)
+
                 longest_source = max(longest_source, len(ss_indices))
                 longest_target = max(longest_target, len(tt_indices))
 
@@ -311,7 +348,9 @@ class TextIterator:
                         target.pop()
                         self.source_buffer.append(ss)
                         self.target_buffer.append(tt)
-
+                        if self.same_scene_masks_orig:
+                            same_scene_mask.pop()
+                            self.same_scene_masks_buffer.append(ssm)
                         break
 
                 else:
@@ -320,8 +359,9 @@ class TextIterator:
                         break
         except IOError:
             self.end_of_data = True
-
-        return source, target
+        if not self.same_scene_masks_orig: # make sure same_scene_mask is of same length as source (so iterator will work) even when not used
+            same_scene_mask = [0] * len(source)
+        return source, target, same_scene_mask
 
 
 def _last_word(idxs, tokens,

@@ -383,6 +383,19 @@ class ConfigSpecification:
             help='True if system uses one head to attend only to tokens in the same scene as current one (default: False)'))
 
         group.append(ParameterSpecification(
+            name='same_scene_masks', default=None,
+            visible_arg_names=['--same_scene_masks'],
+            type=str, metavar='PATH',
+            help='same scene mask for the source (train set)'))
+
+        group.append(ParameterSpecification(
+            name='valid_same_scene_masks', default=None,
+            visible_arg_names=['--valid_same_scene_masks'],
+            type=str, metavar='PATH',
+            help='same scene mask for the source (validation set)'))
+
+
+        group.append(ParameterSpecification(
             name='target_labels_num', default=None,
             visible_arg_names=['--target_labels_num'],
             type=int,
@@ -1315,6 +1328,11 @@ def _check_config_consistency(spec, config, set_by_user):
                   'exclusive with --valid_source_dataset and ' \
                   '--valid_target_dataset'
             error_messages.append(msg)
+
+    if config.same_scene_head and (not config.valid_same_scene_masks or not config.same_scene_masks):
+        msg ='--same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
+        error_messages.append(msg)
+
 
     if (config.source_vocab_sizes is not None and
             len(config.source_vocab_sizes) > config.factors):
