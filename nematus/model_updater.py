@@ -79,7 +79,7 @@ class ModelUpdater(object):
         raise NotImplementedError
 
     def split_per_gpu(self, session, x, x_mask, y, y_mask, num_to_target, x_edges_time=None,
-                      x_labels_time=None, x_parents_time=None):
+                      x_labels_time=None, x_parents_time=None, x_same_scene_mask=None):
 
         # Split the minibatch into sub-batches. The number of sub-batches is
         # determined based on either the per-device size limit, if set, or on
@@ -91,7 +91,7 @@ class ModelUpdater(object):
         split_score = None
         split_index = None
         index = None
-        if self._config.loss_function == 'MRT':
+        if self._config.loss_function == 'MRT': #TODO: AVIVSL make sure this is also covered
             # Generate candidate sentences (sampling) based on source sentences in each minibatch
             # outputs are 'sampleN' times larger than inputs
             # replica only use single model since multi-GPU sampling isn't
@@ -122,14 +122,14 @@ class ModelUpdater(object):
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges, split_x_labels, split_x_edges_time,split_x_labels_time, weights = \
         #     self._split_and_pad_minibatch(x, x_mask, y, y_mask, x_edges, x_labels, x_edges_time, x_labels_time, start_points)
 
-        if self._config.loss_function == 'MRT':
+        if self._config.loss_function == 'MRT': #TODO: AVIVSL make sure this is also covered
             split_x, split_x_mask, split_y, split_y_mask, split_score, weights, split_index = \
                 self._split_and_pad_minibatch_mrt(
                     x, x_mask, y, y_mask, score, start_points, index)
         else:
-            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights = \
+            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_same_scene_mask, weights = \
                 self._split_and_pad_minibatch(
-                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, start_points)
+                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask, start_points)
 
         # Scale the weights so that short minibatches (e.g. at the end of
         # maxibatches) contribute less.
@@ -140,7 +140,7 @@ class ModelUpdater(object):
             # Actual batch size / Max batch size, in tokens
             scaling_factor = (
                                      x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights, split_score, split_index, scaling_factor
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_same_scene_mask, weights, split_score, split_index, scaling_factor
 
     def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None):
         return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents,
@@ -185,7 +185,7 @@ class ModelUpdater(object):
         #     session.run([self.model.loss_per_sentence], feed_dict=feed_dict, options=run_options)
 
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
-               x_labels_time=None, x_parents=None, apply_grads=True):
+               x_labels_time=None, x_parents=None, apply_grads=True, x_same_scene_mask=None): #TODO: AVIVSL - make sure to update every place that calls this function if relevant
         """Updates the model for a single minibatch.
 
         Args:
@@ -201,9 +201,9 @@ class ModelUpdater(object):
             is the sentence-level or token-level cross entropy, optionally with
             L2 or MAP-L2 regularization.
         """
-        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
+        split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents, split_x_same_scene_mask, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
             session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
-            x_labels_time, x_parents)
+            x_labels_time, x_parents, x_same_scene_mask)
 
         if apply_grads:
             # Normalize the weights so that _ModelUpdateGraph can just sum the
@@ -219,7 +219,7 @@ class ModelUpdater(object):
             logging.info("Profiling")
             profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
         losses = []
-        for i in range(0, len(split_x), len(self._replicas)):
+        for i in range(0, len(split_x), len(self._replicas)): #TODO: stopped here - need to add the same_scene_masks to the feed_dict
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
             # print("scaling_factor", scaling_factor)
@@ -485,7 +485,7 @@ class ModelUpdater(object):
 
         return start_points
 
-    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time,
+    def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask,
                                  start_points):
 
         # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges,
@@ -516,6 +516,10 @@ class ModelUpdater(object):
         split_x_mask = split_array(x_mask, start_points)
         split_y = split_array(y, start_points)
         split_y_mask = split_array(y_mask, start_points)
+        if x_same_scene_mask is not None:
+            split_x_same_scene_mask = split_array(x_same_scene_mask, start_points)
+        else:
+            split_x_same_scene_mask = None
         if x_parents_time is not None:
             split_x_parents_time = split_array(x_parents_time, start_points)
         else:
@@ -539,9 +543,14 @@ class ModelUpdater(object):
         def trim_arrays(arrays, new_seq_lens):
             return [a[..., 0:l, :] for a, l in zip(arrays, new_seq_lens)]
 
-        max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_x_mask]
+        def trim_same_scene_masks(arrays, new_seq_lens):
+            return [a[0:l, 0:l, :] for a, l in zip(arrays, new_seq_lens)]
+
+        max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_x_mask] #the maximum length for each such split (x)
         split_x = trim_arrays(split_x, max_lens)
         split_x_mask = trim_arrays(split_x_mask, max_lens)
+        if split_x_same_scene_mask is not None:
+            split_x_same_scene_mask = trim_same_scene_masks(split_x_same_scene_mask, max_lens)
         # split_x_parents_time = [a[..., 0:l, 0:l, :] for a, l in zip(split_x_parents_time, max_lens)] # attention should be trimmed both in the from and to
         # if split_x_edges_time is not None:
         #     # split_x_edges = trim_arrays(split_x_edges, max_lens)
@@ -549,7 +558,7 @@ class ModelUpdater(object):
         #     split_x_edges_time = trim_arrays(split_x_edges_time, max_lens)
         #     split_x_labels_time = trim_arrays(split_x_labels_time, max_lens)
 
-        max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_y_mask]
+        max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_y_mask]  #the maximum length for each such split (y)
         split_y = trim_arrays(split_y, max_lens)
         split_y_mask = trim_arrays(split_y_mask, max_lens)
 
@@ -577,6 +586,8 @@ class ModelUpdater(object):
         pad(split_x_mask, padding_size)
         pad(split_y, padding_size)
         pad(split_y_mask, padding_size)
+        if split_x_same_scene_mask is not None:
+            pad(split_x_same_scene_mask, padding_size)
         if split_x_parents_time is not None:
             pad(split_x_parents_time, padding_size)
         if split_x_edges_time is not None:
@@ -588,7 +599,7 @@ class ModelUpdater(object):
         for i in range(padding_size):
             weights.append(0.0)
 
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, weights
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_same_scene_mask , weights
         # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges,
         # split_x_labels, split_x_edges_time, split_x_labels_time, weights
 

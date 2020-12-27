@@ -74,7 +74,7 @@ def reset_dict_indexes(d):
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 
 
-def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, maxlen=None):
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, same_scene_masks_x=None, maxlen=None): #TODO: AVIVSL: make sure that anyone calling this function that might have same_scene_masks will send them
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
@@ -96,11 +96,12 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         target_labels_time = None
 
     # drop pairs with sentences longer than maxlen
-    if maxlen is not None:
+    if maxlen is not None: #TODO: AVIVSL make sure this workd (pass maxlen=20 - longer sentence should drop)
         new_seqs_x = []
         new_seqs_y = []
         new_lengths_x = []
         new_lengths_y = []
+        new_same_scene_masks_x = []
         kept = []
         for i, (l_x, s_x, l_y, s_y) in enumerate(zip(lengths_x, seqs_x, lengths_y, seqs_y)):
             if l_x < maxlen and l_y < maxlen:
@@ -108,11 +109,14 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
                 new_lengths_x.append(l_x)
                 new_seqs_y.append(s_y)
                 new_lengths_y.append(l_y)
+                if same_scene_masks_x is not None:
+                    new_same_scene_masks_x.append(same_scene_masks_x[i])
                 kept.append(i)
         lengths_x = new_lengths_x
         seqs_x = new_seqs_x
         lengths_y = new_lengths_y
         seqs_y = new_seqs_y
+        same_scene_masks_x = new_same_scene_masks_x if same_scene_masks_x is not None else None
         if seq_parents_time is not None:
             seq_parents_time = seq_parents_time[..., kept]
         if seq_edges_time is not None:
@@ -124,18 +128,21 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
     n_samples = len(seqs_x)
     maxlen_x = numpy.max(lengths_x) + 1
     maxlen_y = numpy.max(lengths_y) + 1
-    x = numpy.zeros((n_factors, maxlen_x, n_samples)).astype('int64')
+    x = numpy.zeros((n_factors, maxlen_x, n_samples)).astype('int64') # currently n_factors for transformer is 1
     y = numpy.zeros((maxlen_y, n_samples)).astype('int64')
     x_mask = numpy.zeros((maxlen_x, n_samples)).astype('float32')
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
+    x_ss_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if same_scene_masks_x is not None else None
 
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
         x[:, :lengths_x[idx], idx] = list(zip(*s_x))
         x_mask[:lengths_x[idx] + 1, idx] = 1.
         y[:lengths_y[idx], idx] = s_y
         y_mask[:lengths_y[idx] + 1, idx] = 1.
+        if same_scene_masks_x is not None:
+            x_ss_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*same_scene_masks_x[idx]))
 
-    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time
+    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, x_ss_mask
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
 
 

@@ -234,7 +234,7 @@ class TextIterator:
 
         source = []
         target = []
-        same_scene_mask = []
+        # same_scene_mask = []
 
         longest_source = 0
         longest_target = 0
@@ -310,7 +310,11 @@ class TextIterator:
                                           self.source_unk_vals[0])]
                     tmp.append(w)
                 ss_indices = tmp
-                source.append(ss_indices)
+                if self.same_scene_masks_orig:
+                    same_scene_mask = self.same_scene_masks_buffer.pop()
+                    source.append((ss_indices, same_scene_mask))
+                else:
+                    source.append(ss_indices)
 
                 # read from source file and map to words index
                 tt = self.target_buffer.pop()
@@ -333,9 +337,9 @@ class TextIterator:
                     target.append(tt_indices)
 
                 # read from same_scene_mask file
-                if self.same_scene_masks_orig:
-                    ssm = self.same_scene_masks_buffer.pop()
-                    same_scene_mask.append(ssm)
+                # if self.same_scene_masks_orig:
+                #     ssm = self.same_scene_masks_buffer.pop()
+                #     same_scene_mask.append(ssm)
 
                 longest_source = max(longest_source, len(ss_indices))
                 longest_target = max(longest_target, len(tt_indices))
@@ -360,8 +364,8 @@ class TextIterator:
         except IOError:
             self.end_of_data = True
         if not self.same_scene_masks_orig: # make sure same_scene_mask is of same length as source (so iterator will work) even when not used
-            same_scene_mask = [0] * len(source)
-        return source, target, same_scene_mask
+            same_scene_mask = [None] * len(source)
+        return source, target
 
 
 def _last_word(idxs, tokens,

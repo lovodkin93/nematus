@@ -151,7 +151,7 @@ def train(config, sess):
         with tf.device(device_spec):
             with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i > 0)):
                 if config.model_type == "transformer":
-                    model = TransformerModel(config)
+                    model = TransformerModel(config) #TODO: possible direction - AVIVSL
                 else:
                     model = rnn_model.RNNModel(config)
                 replicas.append(model)
@@ -196,6 +196,10 @@ def train(config, sess):
 
     updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
                            writer)
+
+    ############################################################################
+    logging.info("AVIVSL15: number of replicas is {0} and each replica is of type {1}".format(len(replicas), type(replicas[0])))
+    ###########################################################################
     # val_updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
     #                        writer)
 
@@ -237,7 +241,8 @@ def train(config, sess):
         config.max_epochs = progress.eidx + 1
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
-        for source_sents, target_sents, same_scene_masks in text_iterator: #TODO: here the separation into sentences occures - need to somehow align the masks here? don't forget the batch is random...
+        for source_sents, target_sents in text_iterator: #TODO: here the separation into sentences occures - need to somehow align the masks here? don't forget the batch is random...
+            logging.info("AVIVSL10: source_sents are: {0}".format(source_sents))
             # logging.info(f"Source len {len(source_sents)}")
             # logging.info("Start batch {0}".format(progress.uidx)) # source_sents is a list of sentences, each being a list of lists {l}, where wach such l is a list of size 1 containing an int
             # source1 = ' '.join([num_to_source[0][word[0]] for word in source_sents[0]])
@@ -250,11 +255,6 @@ def train(config, sess):
             #     logging.info("AVIVSL10: second sentence is {0}, and its mask is {1}" .format(source2,same_scene_masks[1]))
             #     logging.info("AVIVSL10: third sentence is {0}, and its mask is {1}" .format(source3,same_scene_masks[2]))
             # logging.info("AVIVSL13: length of source_sents is {0} and of same_scene_masks is {1}" .format(len(source_sents), len(same_scene_masks)))
-            if len(source_sents[0][0]) != config.factors:
-                logging.error(
-                    'Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
-                        config.factors, len(source_sents[0][0])))
-                sys.exit(1)
             if config.target_graph:
                 target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
                 logging.info(f"max len {max([len(x) for x in target_sents])}")
@@ -265,13 +265,33 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
+            if config.same_scene_head:
+                source_sents, same_scene_masks = list(zip(*source_sents))
+                source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
+            else:
+                same_scene_masks = None
+            logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
+            if len(source_sents[0][0]) != config.factors:
+                logging.error(
+                    'Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
+                        config.factors, len(source_sents[0][0])))
+                sys.exit(1)
+
             # logging.info("Predicting for " + str(len(target_sents)) + " sentences in batch.")
             # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
             # logging.info("Source sents " + str(source_sents) + " .")
             # logging.info("Target sents " + str(target_sents) + " .")
-            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time = util.prepare_data(
-                source_sents, target_sents, target_edges_time, target_labels_time, target_parents_time, config.factors,
-                maxlen=None)
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask_in \
+                = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time,
+                                    target_parents_time, config.factors, same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
+            # logging.info("AVIVSL16: factors are {0}".format(config.factors))
+            # source_x = ' '.join([num_to_source[0][word[0]] for word in x_in[0]])
+            # source_y = ' '.join([num_to_target[word[0]] for word in y_in])
+            # logging.info("AVIVSL16: x_mask_in if of shape {0} and y_mask_in is of shape {1}." .format(x_mask_in.shape,y_mask_in.shape))
+            # logging.info("AVIVSL17: x_in is {0} \n and y_in is \n {1}.".format(source_x, source_y))
+            #logging.info("AVIVSL18: x_in if of shape {0} and y_in is of shape {1}." .format(x_in.shape,y_in.shape))
+            # logging.info("AVIVSL19: x__mask_in is \n {0} \n and y_mask_in is \n {1} \n.".format(x_mask_in, y_mask_in))
+            #logging.info("AVIVSL19: x_in is{0} and x_mask_in is {1}" .format(x_in,x_mask_in))
 
             if x_in is None:
                 logging.info(
@@ -283,8 +303,8 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time)
-
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=x_same_scene_mask_in) #TODO: AVIVSL this is where the magic happens
+            logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
             else:
@@ -627,7 +647,12 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     ce_vals, token_counts = [], []
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
-    for source_sents, target_sents, same_scene_masks in text_iterator:
+    for source_sents, target_sents in text_iterator:
+        if config.same_scene_head:
+            source_sents, same_scene_masks = list(zip(*source_sents)) #TODO: AVIVSL: check how to incorporate the masks here too
+            source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
+        else:
+            same_scene_masks = None
         logging.info(f"Source len {len(source_sents)}")
         if not source_sents or not source_sents[0]:
             logging.error(f"Excepted source sents instead got: {source_sents}, target: {target_sents}, seen: {len(ce_vals)}")
