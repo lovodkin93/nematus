@@ -403,7 +403,7 @@ class TransformerEncoder(object):
                 self.encoder_stack[layer_id]['self_attn'] = self_attn_block
                 self.encoder_stack[layer_id]['ffn'] = ffn_block
 
-    def encode(self, source_ids, source_mask, source_same_scene_mask=None): #TODO: AVIVSL make sure everyone who is calling this function sends if needed same_scene_mask
+    def encode(self, source_ids, source_mask, source_same_scene_mask=None): #TODO: AVIVSL make sure everyone who is calling this function sends if needed same_scene_mask and remove the default None
         """ Encodes source-side input tokens into meaningful, contextually-enriched representations. """
 
         def _prepare_source():
@@ -470,6 +470,18 @@ class TransformerEncoder(object):
         with tf.compat.v1.variable_scope(self.name):
             # Prepare inputs to the encoder, get attention masks
             enc_inputs, self_attn_mask, cross_attn_mask, same_scene_mask = _prepare_source()
+
+            if same_scene_mask is not None:
+                same_scene_mask = tf.expand_dims(same_scene_mask, axis=1)  # make another dim for number of heads [batch,#heads,longest sent. in batch len, longest sent. in batch len]
+
+            # print_ops = []
+            # if same_scene_mask is not None:
+            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(same_scene_mask), same_scene_mask], "AVIVSL25: same scene_mask:", summarize=10000))
+            #     with tf.control_dependencies(print_ops):
+            #         self_attn_mask = self_attn_mask * 1
+
+
+
             if self.config.same_scene_head:
                 if self.config.same_scene_masks_layers == "all_layers":
                     same_scene_mask_layers = list(range(1, self.config.transformer_enc_depth + 1))
@@ -479,15 +491,12 @@ class TransformerEncoder(object):
                 same_scene_mask_layers=[]
 
             ############################## PRINTING ####################################################
-            printops = []
+            # printops = []
             # printops.append(
-            #          tf.compat.v1.Print([], [tf.shape(attention_rules), attention_rules],
-            #                         "AVIVSL1: attention_rules ", summarize=10000))
-            printops.append(
-                     tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask],
-                                    "AVIVSL2: self_attn_mask in encoder ", summarize=10000))
-            with tf.control_dependencies(printops):
-                 self_attn_mask = self_attn_mask * 1
+            #          tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask],
+            #                         "AVIVSL2: self_attn_mask in encoder ", summarize=10000))
+            # with tf.control_dependencies(printops):
+            #      self_attn_mask = self_attn_mask * 1
             # #########################################################################################
 
             # Propagate inputs through the encoder stack
@@ -495,23 +504,42 @@ class TransformerEncoder(object):
             for layer_id in range(1, self.config.transformer_enc_depth + 1):
 
                 attention_rules = []
-                if self.config.same_scene_head and layer_id in same_scene_mask_layers:
-                     attention_rules.append(same_scene_mask)
+                if same_scene_mask is not None and layer_id in same_scene_mask_layers:
+                    attention_rules.append(same_scene_mask)
 
                 if attention_rules:
                     new_self_attn_mask = self.combine_attention_rules(attention_rules, self_attn_mask)
                 else:
                     new_self_attn_mask = self_attn_mask
 
-
+        ############################################### PRINTING #######################################################
+                printops = []
+                if same_scene_mask is not None:
+                    #printops.append(tf.compat.v1.Print([], [tf.shape(attention_rules[1]), attention_rules[1]], "AVIVSL23: other masks:", summarize=10000))
+                    printops.append(tf.compat.v1.Print([], [layer_id, tf.shape(new_self_attn_mask), new_self_attn_mask[2,:,:,:]], "AVIVSL23: res_mask_1:", summarize=10000))
+                printops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask],"AVIVSL23: self_attn_mask ", summarize=10000))
+                #printops.append(tf.compat.v1.Print([], [tf.shape(new_self_attn_mask), new_self_attn_mask[2,0,:,:]], "AVIVSL23: new_self_attn_mask ", summarize=10000))
+                with tf.control_dependencies(printops):
+                    self_attn_mask = self_attn_mask * 1
+        ################################################################################################################
                 enc_output, _ = self.encoder_stack[layer_id][ #TODO: AVIVSL: change the "self_attn_mask" to "new_self_attn_mask"
-                    'self_attn'].forward(enc_output, None, self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
+                    'self_attn'].forward(enc_output, None, new_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
         return enc_output, cross_attn_mask
 
     def combine_attention_rules(self, attention_rules, self_attn_mask): #TODO: AVIVSL update this once Leshem answers me about the mask question
-        return attention_rules, self_attn_mask
+        if attention_rules and self_attn_mask is not None:
+            curr_attention_rules = attention_rules + [tf.zeros_like(attention_rules[0]) for _ in
+                                                      range(self.config.transformer_num_heads - len(
+                                                          attention_rules))]  # adds #heads-#rules rows of zeros, which are like not having any mask at all (for the other heads)
+            res_attn_mask = tf.concat(curr_attention_rules, axis=1)
+            # res_attn_mask+=self_attn_mask
+            default_attn_mask = tf.zeros_like(res_attn_mask) + self_attn_mask
+            res_attn_mask = tf.minimum(res_attn_mask, default_attn_mask)
+            return res_attn_mask
+        else:
+            return None
 
 
 class TransformerDecoder(object):
