@@ -68,7 +68,7 @@ class ModelAdapter:
 
     def encode(self):
         with tf.compat.v1.name_scope(self._scope):
-            enc_output, cross_attn_mask = self._model.enc.encode(
+            enc_output, cross_attn_mask = self._model.enc.encode( #TODO: possible direction? - AVIVSL.
                 self._model.source_ids, self._model.source_mask)
             return EncoderOutput(enc_output, cross_attn_mask)
 

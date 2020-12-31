@@ -122,7 +122,7 @@ class ModelUpdater(object):
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges, split_x_labels, split_x_edges_time,split_x_labels_time, weights = \
         #     self._split_and_pad_minibatch(x, x_mask, y, y_mask, x_edges, x_labels, x_edges_time, x_labels_time, start_points)
 
-        if self._config.loss_function == 'MRT': #TODO: AVIVSL make sure this is also covered
+        if self._config.loss_function == 'MRT': #TODO: AVIVSL make sure this is also covered (reinforcement learning)
             split_x, split_x_mask, split_y, split_y_mask, split_score, weights, split_index = \
                 self._split_and_pad_minibatch_mrt(
                     x, x_mask, y, y_mask, score, start_points, index)
@@ -239,6 +239,8 @@ class ModelUpdater(object):
                     # sentences to later calculation
                     feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = apply_grads
+                if self._config.same_scene_head:
+                    feed_dict[self._replicas[j].inputs.x_same_scene_mask] = split_x_same_scene_mask[i + j]
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]
                     if self._config.parent_head:

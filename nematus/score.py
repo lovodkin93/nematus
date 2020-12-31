@@ -101,7 +101,7 @@ def calc_scores(source_file, target_file, scorer_settings, configs):
                     source_vocab_sizes=config.source_vocab_sizes,
                     target_vocab_size=config.target_vocab_size,
                     use_factor=(config.factors > 1),
-                    sort_by_length=False)
+                    sort_by_length=False) #TODO: AVIVSL make sure no need to pass the same_scene_masks to this TextIterator too
 
                 ce_vals, _ = train.calc_cross_entropy_per_sentence(
                     sess,

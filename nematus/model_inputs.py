@@ -42,6 +42,13 @@ class ModelInputs(object):
             False,
             name='training',
             shape=())
+
+        if config.same_scene_head:
+            self.x_same_scene_mask = tf.compat.v1.placeholder(
+                name='x_same_scene_mask',
+                shape=(seq_len, seq_len, batch_size),
+                dtype=tf.int32)
+
         if config.target_graph:
             edge_labels_num = 3 # (self left right)
             if config.target_labels_num is None:

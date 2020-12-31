@@ -71,13 +71,21 @@ class AttentionBlock(object):
                                          training=training,
                                          name='post_{:s}_sublayer'.format(attn_name))
 
-    def forward(self, inputs, memory_context, attn_mask, layer_memories=None):
+    def forward(self, inputs, memory_context, attn_mask, layer_memories=None, isDecoder=False):
         """ Propagates input data through the block. """
         if not self.self_attention:
             assert (memory_context is not None), \
                 'Encoder memories have to be provided for encoder-decoder attention computation.'
+
+        print_ops = []
+        if self.self_attention and isDecoder:
+            print_ops.append(
+                tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL8: attn_mask - self attention in decoder" , 50, 100))
+        with tf.control_dependencies(print_ops):
+            inputs = 1 * inputs
+
         attn_inputs = self.pre_attn.forward(inputs)
-        attn_outputs, layer_memories = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories)
+        attn_outputs, layer_memories = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories, isDecoder=isDecoder) #goes to MultiHeadAttentionLayer's forward in nematus.transformer_attention_modules
         block_out = self.post_attn.forward(attn_outputs, residual_inputs=inputs)
         return block_out, layer_memories
 
