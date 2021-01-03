@@ -110,7 +110,7 @@ class TextIterator:
                 if same_scene_masks:
                     self.same_scene_masks.shuffle_lines(r)
         elif shuffle_each_epoch:
-            logging.info("AVIVSL11: source is {0} and target is {1} and masks is {2}".format(source,target, same_scene_masks))
+            #logging.info("AVIVSL11: source is {0} and target is {1} and masks is {2}".format(source,target, same_scene_masks))
             self.source_orig = source
             self.target_orig = target
             self.same_scene_masks_orig = same_scene_masks
@@ -260,7 +260,7 @@ class TextIterator:
                     self.source_buffer.append(ss)
                     self.target_buffer.append(tt)
                     if self.same_scene_masks_orig:
-                        self.same_scene_masks_buffer.append(ast.literal_eval(ssm)) # ast.literal_eval translates a string represting a list of lists into a list of lists
+                           self.same_scene_masks_buffer.append(ast.literal_eval(ssm)) # ast.literal_eval translates a string represting a list of lists into a list of lists
                 if len(self.source_buffer) == self.k:
                     break
 

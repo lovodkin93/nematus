@@ -151,7 +151,7 @@ def train(config, sess):
         with tf.device(device_spec):
             with tf.compat.v1.variable_scope(tf.compat.v1.get_variable_scope(), reuse=(i > 0)):
                 if config.model_type == "transformer":
-                    model = TransformerModel(config) #TODO: possible direction - AVIVSL
+                    model = TransformerModel(config)
                 else:
                     model = rnn_model.RNNModel(config)
                 replicas.append(model)
@@ -198,7 +198,7 @@ def train(config, sess):
                            writer)
 
     ############################################################################
-    logging.info("AVIVSL15: number of replicas is {0} and each replica is of type {1}".format(len(replicas), type(replicas[0])))
+    #logging.info("AVIVSL15: number of replicas is {0} and each replica is of type {1}".format(len(replicas), type(replicas[0])))
     ###########################################################################
     # val_updater = ModelUpdater(config, num_gpus, replicas, optimizer, global_step,
     #                        writer)
@@ -241,8 +241,8 @@ def train(config, sess):
         config.max_epochs = progress.eidx + 1
     for progress.eidx in range(progress.eidx, config.max_epochs):
         logging.info('Starting epoch {0} of {1}'.format(progress.eidx, config.max_epochs))
-        for source_sents, target_sents in text_iterator: #TODO: here the separation into sentences occures - need to somehow align the masks here? don't forget the batch is random...
-            logging.info("AVIVSL10: source_sents are: {0}".format(source_sents))
+        for source_sents, target_sents in text_iterator:
+            #logging.info("AVIVSL10: source_sents are: {0}".format(source_sents))
             # logging.info(f"Source len {len(source_sents)}")
             # logging.info("Start batch {0}".format(progress.uidx)) # source_sents is a list of sentences, each being a list of lists {l}, where wach such l is a list of size 1 containing an int
             # source1 = ' '.join([num_to_source[0][word[0]] for word in source_sents[0]])
@@ -270,7 +270,7 @@ def train(config, sess):
                 source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
             else:
                 same_scene_masks = None
-            logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
+            #logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
             if len(source_sents[0][0]) != config.factors:
                 logging.error(
                     'Mismatch between number of factors in settings ({0}), and number in training corpus ({1})\n'.format(
@@ -303,8 +303,8 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=x_same_scene_mask_in) #TODO: AVIVSL this is where the magic happens
-            logging.info("AVIVSL16: output is {0}".format(output))
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=x_same_scene_mask_in)
+            #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
             else:
@@ -378,7 +378,7 @@ def train(config, sess):
             logging.info("validation " + str(progress.uidx) + "," + str(config.valid_freq))
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
                 if config.exponential_smoothing > 0.0:
-                    sess.run(fetches=smoothing.swap_ops)
+                    sess.run(fetches=smoothing.swap_ops) #TODO: ask Leshem - no need to incorporate here anything, right?
                     valid_ce = validate(sess, replicas[0], config,
                                         valid_text_iterator, updater)
                     sess.run(fetches=smoothing.swap_ops)
@@ -649,7 +649,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
         if config.same_scene_head:
-            source_sents, same_scene_masks = list(zip(*source_sents)) #TODO: AVIVSL: check how to incorporate the masks here too
+            source_sents, same_scene_masks = list(zip(*source_sents))
             source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
         else:
             same_scene_masks = None
@@ -676,13 +676,14 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             target_labels_time = None
             target_parents_time = None
 
-        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time = util.prepare_data(source_sents,
-                                                                                              target_sents,
-                                                                                              target_edges_time,
-                                                                                              target_labels_time,
-                                                                                              target_parents_time,
-                                                                                              config.factors,
-                                                                                              maxlen=None)
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask = util.prepare_data(source_sents,
+                                                                                               target_sents,
+                                                                                               target_edges_time,
+                                                                                               target_labels_time,
+                                                                                               target_parents_time,
+                                                                                               config.factors,
+                                                                                               same_scene_masks,
+                                                                                               maxlen=None)
 
         # # Run the minibatch through the model to get the sentence-level cross entropy values.
         # feeds = {model.inputs.x: x,
@@ -699,7 +700,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]

@@ -142,8 +142,8 @@ class ModelUpdater(object):
                                      x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
         return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_same_scene_mask, weights, split_score, split_index, scaling_factor
 
-    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None):
-        return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents,
+    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None, x_same_scene_mask=None):
+        return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents, x_same_scene_mask=x_same_scene_mask,
                            apply_grads=False)
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, normalized_weights, scaling_factor = self.split_per_gpu(
         #     session, x, x_mask, y, y_mask, {}, x_edges_time,
@@ -185,7 +185,7 @@ class ModelUpdater(object):
         #     session.run([self.model.loss_per_sentence], feed_dict=feed_dict, options=run_options)
 
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
-               x_labels_time=None, x_parents=None, apply_grads=True, x_same_scene_mask=None): #TODO: AVIVSL - make sure to update every place that calls this function if relevant
+               x_labels_time=None, x_parents=None, x_same_scene_mask=None, apply_grads=True):
         """Updates the model for a single minibatch.
 
         Args:
@@ -219,7 +219,7 @@ class ModelUpdater(object):
             logging.info("Profiling")
             profiler = tf.compat.v1.profiler.Profiler(session.graph) # TODO delete
         losses = []
-        for i in range(0, len(split_x), len(self._replicas)): #TODO: stopped here - need to add the same_scene_masks to the feed_dict
+        for i in range(0, len(split_x), len(self._replicas)):
             feed_dict = {}
             feed_dict[self._graph.scaling_factor] = scaling_factor
             # print("scaling_factor", scaling_factor)
@@ -814,7 +814,7 @@ class _ModelUpdateGraph(object):
                         loss = self._replicas[i].loss
                     elif self._config.loss_function == \
                             "per-token-cross-entropy":
-                        ce_per_sent = self._replicas[i].loss_per_sentence
+                        ce_per_sent = self._replicas[i].loss_per_sentence #returns the current loss value per sentence
                         ce_total = tf.reduce_sum(input_tensor=ce_per_sent)
                         num_tokens = tf.reduce_sum(
                             input_tensor=self._replicas[i].inputs.y_mask)

@@ -74,7 +74,7 @@ def reset_dict_indexes(d):
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 
 
-def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, same_scene_masks_x=None, maxlen=None): #TODO: AVIVSL: make sure that anyone calling this function that might have same_scene_masks will send them
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, same_scene_masks_x, maxlen=None):
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
@@ -96,7 +96,7 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         target_labels_time = None
 
     # drop pairs with sentences longer than maxlen
-    if maxlen is not None: #TODO: AVIVSL make sure this workd (pass maxlen=20 - longer sentence should drop)
+    if maxlen is not None:
         new_seqs_x = []
         new_seqs_y = []
         new_lengths_x = []

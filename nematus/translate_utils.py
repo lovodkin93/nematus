@@ -42,7 +42,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
     x_mask_tiled = numpy.tile(x_mask, reps=[1, sampler.beam_size])
 
     feed_dict = {}
-
+    #TODO: AVIVSL - add the same_scene_mask to the feed_dict.
     # Feed inputs to the models.
     for model, config in zip(sampler.models, sampler.configs):
         if config.model_type == 'rnn':
@@ -81,7 +81,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
 
 def translate_file(input_file, output_file, session, sampler, config,
                    max_translation_len, normalization_alpha, nbest=False,
-                   minibatch_size=80, maxibatch_size=20):
+                   minibatch_size=80, maxibatch_size=20): #TODO: AVIVSL add same scene file(?)
     """Translates a source file using a RandomSampler or BeamSearchSampler.
 
     Args:
@@ -110,7 +110,7 @@ def translate_file(input_file, output_file, session, sampler, config,
         # Sort the maxibatch by length and split into minibatches.
         try:
             minibatches, idxs = util.read_all_lines(config, maxibatch,
-                                                    minibatch_size)
+                                                    minibatch_size) #TODO: AVIVSL add here also consideration of same_scene_mask
         except exception.Error as x:
             logging.error(x.msg)
             sys.exit(1)
@@ -121,10 +121,10 @@ def translate_file(input_file, output_file, session, sampler, config,
         for x in minibatches:
             y_dummy = numpy.zeros(shape=(len(x), 1))
             x, x_mask, _, _, _, _, _ = util.prepare_data(x, y_dummy, None, None, None, config.factors,
-                                                         maxlen=None)
+                                                         maxlen=None) #TODO: AVIVSL add here also consideration of same_scene_mask
             # logging.info(f"Batch size {x.shape}, minibatch_size {minibatch_size}, maxibatch_size {maxibatch_size}")
             sample = translate_batch(session, sampler, x, x_mask,
-                                     max_translation_len, normalization_alpha)
+                                     max_translation_len, normalization_alpha) #TODO: AVIVSL add here also consideration of same_scene_mask (this is where the magic happens?)
             beams.extend(sample)
             num_translated = num_prev_translated + len(beams)
             logging.info('Translated {} sents'.format(num_translated))
@@ -164,7 +164,7 @@ def translate_file(input_file, output_file, session, sampler, config,
     num_translated = 0
     maxibatch = []
     while True:
-        line = input_file.readline()
+        line = input_file.readline() #TODO: AVIVSL add reading from same_scene_file
         if line == "":
             if len(maxibatch) > 0:
                 translate_maxibatch(maxibatch, num_to_target, num_translated)

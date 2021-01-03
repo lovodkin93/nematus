@@ -68,8 +68,14 @@ class ModelAdapter:
 
     def encode(self):
         with tf.compat.v1.name_scope(self._scope):
-            enc_output, cross_attn_mask = self._model.enc.encode( #TODO: possible direction? - AVIVSL.
-                self._model.source_ids, self._model.source_mask)
+            enc_output, cross_attn_mask = self._model.enc.encode(
+                self._model.source_ids, self._model.source_mask, self._model.same_scene_mask)
+            ################################################ PRINTS #################################################
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self._model.same_scene_mask), self._model.same_scene_mask], "AVIVSL30: same_scene_mask:", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     enc_output = enc_output * 1
+            #########################################################################################################
             return EncoderOutput(enc_output, cross_attn_mask)
 
     def generate_decoding_function(self, encoder_output):
