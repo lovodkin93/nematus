@@ -113,10 +113,15 @@ def main(settings):
             out = open(settings.output_path, "w")
         else:
             out = settings.output
+        if configs[0].same_scene_masks is not None: #TODO: AVIVSL if running - make sure works
+            same_scene_masks = open(configs[0].same_scene_masks, "r")
+        else: #TODO: AVIVSL if running - make sure works
+            same_scene_masks = None
         # Translate the source file.
         translate_utils.translate_file(
             input_file=settings.input,
             output_file=out,
+            same_scene_masks_file=same_scene_masks,
             session=session,
             sampler=sampler,
             config=configs[0],
@@ -127,6 +132,7 @@ def main(settings):
             maxibatch_size=settings.maxibatch_size)
         if settings.output_path is not None:
             out.close()
-
+        if configs[0].same_scene_masks is not None: #TODO: AVIVSL if running - make sure works
+            same_scene_masks.close()
 if __name__ == "__main__":
     main(settings)

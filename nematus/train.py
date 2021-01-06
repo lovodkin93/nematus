@@ -331,6 +331,8 @@ def train(config, sess):
                 logging.info('{0} Epoch: {1} Update: {2} Loss/words: {3} Words/sec: {4} Sents/sec: {5}'.format(
                     disp_time, progress.eidx, progress.uidx, total_loss / n_words, n_words / duration,
                                                              n_sents / duration))
+                if progress.uidx == 1000:
+                    print("gotcha")
                 last_time = time.time()
                 total_loss = 0.
                 n_sents = 0
@@ -340,9 +342,11 @@ def train(config, sess):
                 x_small = x_in[:, :, :10]
                 x_mask_small = x_mask_in[:, :10]
                 y_small = y_in[:, :10]
+                if x_same_scene_mask_in is not None:
+                    x_same_scene_mask_small = x_same_scene_mask_in[:, :, :10]
                 samples = translate_utils.translate_batch(
                     sess, random_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, 0.0)
+                    config.translation_maxlen, 0.0, x_same_scene_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -359,9 +363,13 @@ def train(config, sess):
                 x_small = x_in[:, :, :10]
                 x_mask_small = x_mask_in[:, :10]
                 y_small = y_in[:, :10]
+                if x_same_scene_mask_in is not None:
+                    x_same_scene_mask_small = x_same_scene_mask_in[:, :, :10]
+                else:
+                    x_same_scene_mask_small = None
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, config.normalization_alpha)
+                    config.translation_maxlen, config.normalization_alpha, x_same_scene_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -378,7 +386,7 @@ def train(config, sess):
             logging.info("validation " + str(progress.uidx) + "," + str(config.valid_freq))
             if config.valid_freq and progress.uidx % config.valid_freq == 0:
                 if config.exponential_smoothing > 0.0:
-                    sess.run(fetches=smoothing.swap_ops) #TODO: ask Leshem - no need to incorporate here anything, right?
+                    sess.run(fetches=smoothing.swap_ops)
                     valid_ce = validate(sess, replicas[0], config,
                                         valid_text_iterator, updater)
                     sess.run(fetches=smoothing.swap_ops)
@@ -522,17 +530,33 @@ def validate_with_script(session, beam_search_sampler):
     logging.info('Starting external validation.')
     out = tempfile.NamedTemporaryFile(mode='w')
 
-    with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
-        translate_utils.translate_file(
-            input_file=infile,
-            output_file=out,
-            session=session,
-            sampler=beam_search_sampler,
-            config=config,
-            max_translation_len=config.translation_maxlen,
-            normalization_alpha=config.normalization_alpha,
-            nbest=False,
-            minibatch_size=config.valid_batch_size)
+    #if config.valid_same_scene_masks
+    if config.valid_bleu_same_scene_masks is not None:
+        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile, open(config.valid_bleu_same_scene_masks) as same_scene_masks_file: #TODO: AVIVSL make sure if encoding="UTF-8" in the same_scene_mask does problems
+            translate_utils.translate_file(
+                input_file=infile,
+                output_file=out,
+                same_scene_masks_file=same_scene_masks_file,
+                session=session,
+                sampler=beam_search_sampler,
+                config=config,
+                max_translation_len=config.translation_maxlen,
+                normalization_alpha=config.normalization_alpha,
+                nbest=False,
+                minibatch_size=config.valid_batch_size)
+    else:
+        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
+            translate_utils.translate_file(
+                input_file=infile,
+                output_file=out,
+                same_scene_masks_file=None,
+                session=session,
+                sampler=beam_search_sampler,
+                config=config,
+                max_translation_len=config.translation_maxlen,
+                normalization_alpha=config.normalization_alpha,
+                nbest=False,
+                minibatch_size=config.valid_batch_size)
     logging.info("about to flush")
     out.flush()
     dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
@@ -752,7 +776,7 @@ if __name__ == "__main__":
     tf_config = tf.compat.v1.ConfigProto()
     tf_config.allow_soft_placement = True
 
-    # tf_config.gpu_options.allow_growth = True #TODO delete
+    # tf_config.gpu_options.allow_growth = True # TODO delete
     # print("allowing grouth")
 
     # config.gpu_options.per_process_gpu_memory_fraction = 0.95

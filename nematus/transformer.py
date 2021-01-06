@@ -434,7 +434,7 @@ class TransformerEncoder(object):
             # Add positional encodings
             positional_signal = get_positional_signal(time_steps, depth, FLOAT_DTYPE)
             source_embeddings += positional_signal
-            if source_same_scene_mask is not None: #if self.config.same_scene_head: #TODO: need to check same_scene_flag, not that source_same_scene_mask is not empty (when everyone who is calling it passes the a same_scene_mask when needed - change it back
+            if source_same_scene_mask is not None:
                 same_scene_mask = tf.dtypes.cast(source_same_scene_mask,FLOAT_DTYPE)
                 inverse_same_scene_mask = tf.cast(tf.equal(same_scene_mask, 0.0), dtype=FLOAT_DTYPE)
                 same_scene_mask = inverse_same_scene_mask *  MASK_ATTEN_VAL

@@ -103,6 +103,8 @@ class TextIterator:
             self.source, self.target = FileWrapper(source), FileWrapper(target)
             if same_scene_masks:
                 self.same_scene_masks = FileWrapper(same_scene_masks)
+            else:
+                self.same_scene_masks = None
             if shuffle_each_epoch:
                 r = numpy.random.permutation(len(self.source))
                 self.source.shuffle_lines(r)
@@ -120,12 +122,15 @@ class TextIterator:
             else:
                 self.source, self.target = shuffle.jointly_shuffle_files(
                     [self.source_orig, self.target_orig], temporary=True)
+                self.same_scene_masks = None
             #logging.info("AVIVSL12: source is {0} and target is {1} and masks is {2}".format(self.source, self.target, self.same_scene_masks))
         else:
             self.source = fopen(source, 'r')
             self.target = fopen(target, 'r')
             if same_scene_masks:
                 self.same_scene_masks = fopen(same_scene_masks, 'r')
+            else:
+                self.same_scene_masks = None
         self.source_dicts = []
         for source_dict in source_dicts:
             self.source_dicts.append(load_dict(source_dict, model_type))
@@ -253,7 +258,7 @@ class TextIterator:
                 if len(ss) > self.maxlen or len(tt) > self.maxlen:
                     continue
 
-                if self.remove_parse: #TODO: ask Leshem - part of his parsing code, right?
+                if self.remove_parse:
                     ss = extract_text_from_combined_tokens(ss)
                     tt = extract_text_from_combined_tokens(tt)
                 if (ss and tt) or not self.ignore_empty:

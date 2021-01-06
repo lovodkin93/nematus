@@ -9,6 +9,7 @@ import numpy
 import sys
 import numpy as np
 import tensorflow as tf
+import ast
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 
@@ -141,6 +142,7 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         y_mask[:lengths_y[idx] + 1, idx] = 1.
         if same_scene_masks_x is not None:
             x_ss_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*same_scene_masks_x[idx]))
+            x_ss_mask[lengths_x[idx], lengths_x[idx], idx] = 1 # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
 
     return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, x_ss_mask
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
@@ -339,7 +341,7 @@ def load_dictionaries(config):
     return source_to_num, target_to_num, num_to_source, num_to_target
 
 
-def read_all_lines(config, sentences, batch_size):
+def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIVSL make sure everyone calling it sends same_scene_mask
     source_to_num, _, _, _ = load_dictionaries(config)
 
     if config.source_vocab_sizes != None:
@@ -351,7 +353,8 @@ def read_all_lines(config, sentences, batch_size):
                         del d[key]
 
     lines = []
-    for sent in sentences:
+    same_scene_masks = []
+    for i,sent in enumerate(sentences):
         line = []
         for w in sent.strip().split():
             if config.factors == 1:
@@ -365,16 +368,26 @@ def read_all_lines(config, sentences, batch_size):
                             config.factors, len(w)))
             line.append(w)
         lines.append(line)
+        if same_scene_batch is not None:
+            same_scene_masks.append(ast.literal_eval(same_scene_batch[i]))
     lines = numpy.array(lines)
     lengths = numpy.array([len(l) for l in lines])
     idxs = lengths.argsort()
     lines = lines[idxs]
 
+    if same_scene_batch is not None:
+        same_scene_masks = numpy.array(same_scene_masks)
+        same_scene_masks = same_scene_masks[idxs]
+
     # merge into batches
     batches = []
     for i in range(0, len(lines), batch_size):
         batch = lines[i:i + batch_size]
-        batches.append(batch)
+        if same_scene_batch is not None:
+            same_scene_mask_batch = same_scene_masks[i:i + batch_size]
+            batches.append((batch, same_scene_mask_batch))
+        else:
+            batches.append(batch)
 
     return batches, idxs
 

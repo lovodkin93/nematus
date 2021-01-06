@@ -844,6 +844,14 @@ class ConfigSpecification:
             help='source validation corpus for external evaluation bleu (default: %(default)s)'))
 
         group.append(ParameterSpecification(
+            name='valid_bleu_same_scene_masks', default=None,
+            visible_arg_names=['--valid_bleu_same_scene_masks'],
+            derivation_func=_derive_valid_bleu_same_scene_masks,
+            type=str, metavar='PATH',
+            help='same_scene masks (of the source) for external evaluation bleu (default: %(default)s)'))
+
+
+        group.append(ParameterSpecification(
             name='valid_target_dataset', default=None,
             visible_arg_names=['--valid_target_dataset'],
             derivation_func=_derive_valid_target_dataset,
@@ -1340,6 +1348,11 @@ def _check_config_consistency(spec, config, set_by_user):
         msg ='--same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
         error_messages.append(msg)
 
+    if ((config.valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
+        ((config.valid_bleu_same_scene_masks is not None)  and (config.valid_bleu_source_dataset is None)):
+        msg ='It is needed either both or neither of --valid_bleu_same_scene_masks and --valid_bleu_source_dataset flags'
+        error_messages.append(msg)
+
 
     if (config.source_vocab_sizes is not None and
             len(config.source_vocab_sizes) > config.factors):
@@ -1523,12 +1536,21 @@ def _derive_valid_source_bleu_dataset(config, meta_config):
         return config.valid_source_dataset
 
 
+
 def _derive_valid_target_dataset(config, meta_config):
     if config.valid_target_dataset is not None:
         return config.valid_target_dataset
     if config.valid_datasets is not None:
         return config.valid_datasets[1]
     return None
+
+# if 'valid_bleu_same_scene_masks' is not declared, then set it same
+# as 'same_scene_masks'
+def _derive_valid_bleu_same_scene_masks(config, meta_config):
+    if config.valid_bleu_same_scene_masks is not None:
+        return config.valid_bleu_same_scene_masks
+    else:
+        return config.valid_same_scene_masks
 
 
 def _determine_vocab_size_from_file(path, model_type):

@@ -186,17 +186,17 @@ class MultiHeadAttentionLayer(object):
         if attn_mask is not None:
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
-                                false_fn=lambda: attn_mask) #TODO: ask Leshem - is this relevant to the encoder? or is this part of the beam-search that is done only in the decoder?
+                                false_fn=lambda: attn_mask)
             ################################################## PRINTS ########################################################
             print_ops = []
             enc_dec = "decoder" if isDecoder else "encoder"
             if self.name == "self_attn_sublayer" and not isDecoder:
                 print_ops.append(
-                    tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask],
+                    tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
                                        "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
-                # print_ops.append(
-                #     tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits],
-                #                        "AVIVSL7: in " + enc_dec + " attn_logits (with shape) before mask" + self.name, summarize=10000))
+                print_ops.append(
+                     tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+                                        "AVIVSL7: in " + enc_dec + " attn_logits (with shape) before mask" + self.name, summarize=10000))
             #     print_ops.append(
             #          tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
             # # print_ops.append(
@@ -210,15 +210,15 @@ class MultiHeadAttentionLayer(object):
             attn_logits += attn_mask
 
             ################################################## PRINTS ########################################################
-            # print_ops = []
-            # enc_dec = "decoder" if isDecoder else "encoder"
-            # if self.name == "self_attn_sublayer":
-            #     print_ops.append(
-            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[0, 0, :, :]],
-            #                            "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
-            #                            summarize=10000))
-            # with tf.control_dependencies(print_ops):
-            #     attn_logits = attn_logits * 1
+            print_ops = []
+            enc_dec = "decoder" if isDecoder else "encoder"
+            if self.name == "self_attn_sublayer" and not isDecoder:
+                print_ops.append(
+                    tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+                                       "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
+                                       summarize=10000))
+            with tf.control_dependencies(print_ops):
+                attn_logits = attn_logits * 1
             #################################################################################################################
 
 
@@ -418,7 +418,7 @@ class SingleHeadAttentionLayer(object):
         weighted_memories = tf.matmul(attn_weights, values)
         return weighted_memories
 
-    def forward(self, query_context, memory_context, attn_mask, layer_memories): #TODO:AVIVSL ask Leshem - no need to support the single_head_transformer functions?
+    def forward(self, query_context, memory_context, attn_mask, layer_memories):
         """ Propagates the input information through the attention layer. """
         # The context for the query and the referenced memory is identical in case of self-attention
         if memory_context is None:
