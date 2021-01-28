@@ -141,7 +141,15 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         y[:lengths_y[idx], idx] = s_y
         y_mask[:lengths_y[idx] + 1, idx] = 1.
         if same_scene_masks_x is not None:
+            # try:
             x_ss_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*same_scene_masks_x[idx]))
+            # except:
+            #     print("AVIVSL:")
+            #     print("idx is: {}, shape of same_scene_masks_x is: {} , len of same_scene_masks_x[idx] is: {}, len of each element in same_scene_masks_x[idx] is {}\n".format(idx, same_scene_masks_x.shape, len(list(zip(*same_scene_masks_x[idx]))), len(list(zip(*same_scene_masks_x[idx]))[0])))
+            #     print("shape of x_ss_mask is: {}\n".format(x_ss_mask.shape))
+            #     print("lengths_x is: {}\n".format(lengths_x))
+            #     print("llist(zip(*same_scene_masks_x[idx])) is: {}\n".format(list(zip(*same_scene_masks_x[idx]))))
+            #     exit(1)
             x_ss_mask[lengths_x[idx], lengths_x[idx], idx] = 1 # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
 
     return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, x_ss_mask
@@ -353,7 +361,7 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIV
                         del d[key]
 
     lines = []
-    same_scene_masks = []
+    same_scene_masks = [] if same_scene_batch is not None else None
     for i,sent in enumerate(sentences):
         line = []
         for w in sent.strip().split():

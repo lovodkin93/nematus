@@ -239,7 +239,7 @@ class TextIterator:
 
         source = []
         target = []
-        # same_scene_mask = []
+        # same_scene_mask = [] #TODO: AVIVSL - changed
 
         longest_source = 0
         longest_target = 0
@@ -316,9 +316,10 @@ class TextIterator:
                     tmp.append(w)
                 ss_indices = tmp
                 if self.same_scene_masks_orig:
-                    same_scene_mask = self.same_scene_masks_buffer.pop()
-                    source.append((ss_indices, same_scene_mask))
+                    ssm = self.same_scene_masks_buffer.pop()
+                    source.append((ss_indices, ssm))
                 else:
+                    ssm = None
                     source.append(ss_indices)
 
                 # read from source file and map to words index
@@ -353,12 +354,12 @@ class TextIterator:
                     if len(source) * longest_source > self.token_batch_size or \
                             len(target) * longest_target > self.token_batch_size:
                         # remove last sentence pair (that made batch over-long)
-                        source.pop()
+                        source.pop() # for same_scene_mask, source includes a tuple of (source sentence, same_scene mask)
                         target.pop()
-                        self.source_buffer.append(ss)
+                        self.source_buffer.append(ss) #but the ss is just the sentence, without the same_scene mask
                         self.target_buffer.append(tt)
                         if self.same_scene_masks_orig:
-                            same_scene_mask.pop()
+                            # same_scene_mask.pop()
                             self.same_scene_masks_buffer.append(ssm)
                         break
 
@@ -368,8 +369,8 @@ class TextIterator:
                         break
         except IOError:
             self.end_of_data = True
-        if not self.same_scene_masks_orig: # make sure same_scene_mask is of same length as source (so iterator will work) even when not used
-            same_scene_mask = [None] * len(source)
+        # if not self.same_scene_masks_orig: # make sure same_scene_mask is of same length as source (so iterator will work) even when not used
+        #     same_scene_mask = [None] * len(source)
         return source, target
 
 

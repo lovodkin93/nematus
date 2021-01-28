@@ -191,6 +191,7 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
             translate_maxibatch(maxibatch, num_to_target, num_translated,same_scene_batch)
             num_translated += len(maxibatch)
             maxibatch = []
+            same_scene_batch = [] if same_scene_masks_file is not None else None #FIXME: AVIVSL added this
 
     duration = time.time() - start_time
     logging.info('Translated {} sents in {} sec. Speed {} sents/sec'.format(
