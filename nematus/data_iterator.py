@@ -88,12 +88,14 @@ class TextIterator:
                  target_labels_num=None,
                  splitted_action=False,
                  ignore_empty=False,
-                 source_same_scene_mask=None):
+                 source_same_scene_mask=None,
+                 target_same_scene_mask=None): #TODO: AVIVSL make sure everyone sends target_same_scene_mask or None
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
         self.ignore_empty = ignore_empty
         self.source_same_scene_mask_orig=source_same_scene_mask
+        self.target_same_scene_mask_orig=target_same_scene_mask
         if self.preprocess_script:
             logging.info("Executing external preprocessing script...")
             proc = subprocess.Popen(self.preprocess_script)
@@ -105,24 +107,27 @@ class TextIterator:
                 self.source_same_scene_mask = FileWrapper(source_same_scene_mask)
             else:
                 self.source_same_scene_mask = None
+            if target_same_scene_mask:
+                self.target_same_scene_mask = FileWrapper(target_same_scene_mask)
+            else:
+                self.target_same_scene_mask = None
             if shuffle_each_epoch:
                 r = numpy.random.permutation(len(self.source))
                 self.source.shuffle_lines(r)
                 self.target.shuffle_lines(r)
                 if source_same_scene_mask:
                     self.source_same_scene_mask.shuffle_lines(r)
+                if target_same_scene_mask:
+                    self.target_same_scene_mask.shuffle_lines(r)
         elif shuffle_each_epoch:
             #logging.info("AVIVSL11: source is {0} and target is {1} and masks is {2}".format(source,target, source_same_scene_mask))
             self.source_orig = source
             self.target_orig = target
             self.source_same_scene_mask_orig = source_same_scene_mask
-            if source_same_scene_mask:
-                self.source, self.target, self.source_same_scene_mask = shuffle.jointly_shuffle_files(
-                    [self.source_orig, self.target_orig, self.source_same_scene_mask_orig], temporary=True)
-            else:
-                self.source, self.target = shuffle.jointly_shuffle_files(
-                    [self.source_orig, self.target_orig], temporary=True)
-                self.source_same_scene_mask = None
+            self.target_same_scene_mask_orig = target_same_scene_mask
+
+            self.source, self.target, self.source_same_scene_mask, self.target_same_scene_mask = shuffle.jointly_shuffle_files(
+                    [self.source_orig, self.target_orig, self.source_same_scene_mask_orig, self.target_same_scene_mask_orig], temporary=True)
             #logging.info("AVIVSL12: source is {0} and target is {1} and masks is {2}".format(self.source, self.target, self.source_same_scene_mask))
         else:
             self.source = fopen(source, 'r')
@@ -131,6 +136,10 @@ class TextIterator:
                 self.source_same_scene_mask = fopen(source_same_scene_mask, 'r')
             else:
                 self.source_same_scene_mask = None
+            if target_same_scene_mask:
+                self.target_same_scene_mask = fopen(target_same_scene_mask, 'r')
+            else:
+                self.target_same_scene_mask = None #TODO: AVIVSL:stopped here
         self.source_dicts = []
         for source_dict in source_dicts:
             self.source_dicts.append(load_dict(source_dict, model_type))

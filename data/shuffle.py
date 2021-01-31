@@ -49,7 +49,7 @@ def jointly_shuffle_files(files, temporary=False):
     ordering = [(i // CHUNK_SIZE, i % CHUNK_SIZE) for i in perm]
 
     # Sort each file according to the generated ordering.
-    return [_sort_file(path, ordering, temporary) for path in files]
+    return [_sort_file(path, ordering, temporary) if path is not None else None for path in files]
 
 
 def _sort_file(path, ordering, temporary):

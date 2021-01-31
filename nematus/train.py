@@ -85,7 +85,8 @@ def load_data(config):
         target_graph=config.target_graph,
         target_labels_num=config.target_labels_num,
         splitted_action=config.split_transitions,
-        source_same_scene_mask=config.same_scene_masks
+        source_same_scene_mask=config.same_scene_masks,
+        target_same_scene_mask=config.target_same_scene_masks
     )
 
     if config.valid_freq and config.valid_source_dataset and config.valid_target_dataset:
@@ -111,7 +112,8 @@ def load_data(config):
             target_labels_num=config.target_labels_num,
             splitted_action=config.split_transitions,
             ignore_empty=True,
-            source_same_scene_mask=config.valid_same_scene_masks
+            source_same_scene_mask=config.valid_same_scene_masks,
+            target_same_scene_mask=None
         )
     else:
         logging.info('no validation set loaded')

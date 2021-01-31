@@ -380,7 +380,13 @@ class ConfigSpecification:
             name='source_same_scene_head', default=False,
             visible_arg_names=['--source_same_scene_head'],
             action='store_true',
-            help='True if system uses one head to attend only to tokens in the same scene as current one (default: False)'))
+            help='True if system uses one head to attend only to tokens in the same scene as current one in encoder (default: False)'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_head', default=False,
+            visible_arg_names=['--target_same_scene_head'],
+            action='store_true',
+            help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (default: False)'))
 
         group.append(ParameterSpecification(
             name='source_same_scene_masks_layers', default='all_layers',
@@ -400,6 +406,12 @@ class ConfigSpecification:
             visible_arg_names=['--valid_same_scene_masks'],
             type=str, metavar='PATH',
             help='same scene mask for the source (validation set)'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_masks', default=None,
+            visible_arg_names=['--target_same_scene_masks'],
+            type=str, metavar='PATH',
+            help='same scene mask for the target (train set)'))
 
 
         group.append(ParameterSpecification(
@@ -1346,6 +1358,10 @@ def _check_config_consistency(spec, config, set_by_user):
 
     if config.source_same_scene_head and (not config.valid_same_scene_masks or not config.same_scene_masks):
         msg ='--source_same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
+        error_messages.append(msg)
+
+    if config.target_same_scene_head and (not config.target_same_scene_masks):
+        msg ='--target_same_scene_head requires --target_same_scene_masks'
         error_messages.append(msg)
 
     if ((config.valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
