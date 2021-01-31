@@ -483,10 +483,10 @@ class TransformerEncoder(object):
 
 
             if self.config.same_scene_head:
-                if self.config.same_scene_masks_layers == "all_layers":
+                if self.config.source_same_scene_masks_layers == "all_layers":
                     same_scene_mask_layers = list(range(1, self.config.transformer_enc_depth + 1))
                 else:
-                    same_scene_mask_layers = ast.literal_eval(self.config.same_scene_masks_layers)
+                    same_scene_mask_layers = ast.literal_eval(self.config.source_same_scene_masks_layers)
             else:
                 same_scene_mask_layers=[]
 
@@ -518,7 +518,7 @@ class TransformerEncoder(object):
                 #     #printops.append(tf.compat.v1.Print([], [tf.shape(attention_rules[1]), attention_rules[1]], "AVIVSL23: other masks:", summarize=10000))
                 #     printops.append(tf.compat.v1.Print([], [layer_id, tf.shape(new_self_attn_mask), new_self_attn_mask[0,:,:,:]], "AVIVSL23: res_mask_1:", summarize=10000))
                 # printops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask],"AVIVSL23: self_attn_mask ", summarize=10000))
-                # #printops.append(tf.compat.v1.Print([], [tf.shape(new_self_attn_mask), new_self_attn_mask[2,0,:,:]], "AVIVSL23: new_self_attn_mask ", summarize=10000))
+                # # #printops.append(tf.compat.v1.Print([], [tf.shape(new_self_attn_mask), new_self_attn_mask[2,0,:,:]], "AVIVSL23: new_self_attn_mask ", summarize=10000))
                 # with tf.control_dependencies(printops):
                 #     self_attn_mask = self_attn_mask * 1
         ################################################################################################################

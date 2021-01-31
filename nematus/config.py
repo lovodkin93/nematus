@@ -383,8 +383,8 @@ class ConfigSpecification:
             help='True if system uses one head to attend only to tokens in the same scene as current one (default: False)'))
 
         group.append(ParameterSpecification(
-            name='same_scene_masks_layers', default='all_layers',
-            visible_arg_names=['--same_scene_masks_layers'],
+            name='source_same_scene_masks_layers', default='all_layers',
+            visible_arg_names=['--source_same_scene_masks_layers'],
             type=str, metavar='PATH',
             help='which layers to apply the same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
 
