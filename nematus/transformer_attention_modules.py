@@ -188,15 +188,15 @@ class MultiHeadAttentionLayer(object):
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
             ################################################## PRINTS ########################################################
-            print_ops = []
-            enc_dec = "decoder" if isDecoder else "encoder"
-            if self.name == "self_attn_sublayer" and not isDecoder:
-                print_ops.append(
-                    tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
-                                       "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
-                print_ops.append(
-                     tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
-                                        "AVIVSL7: in " + enc_dec + " attn_logits (with shape) before mask" + self.name, summarize=10000))
+            # print_ops = []
+            # enc_dec = "decoder" if isDecoder else "encoder"
+            # if self.name == "self_attn_sublayer" and not isDecoder:
+            #     print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
+            #                            "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
+            #     print_ops.append(
+            #          tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+            #                             "AVIVSL7: in " + enc_dec + " attn_logits (with shape) before mask" + self.name, summarize=10000))
             #     print_ops.append(
             #          tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
             # # print_ops.append(
@@ -204,21 +204,21 @@ class MultiHeadAttentionLayer(object):
             # # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "keys " + self.name, 50, 100))
             # # if "cross" in self.name:
             # #     print_ops = []
-            with tf.control_dependencies(print_ops):
-                attn_logits = attn_logits * 1
+            # with tf.control_dependencies(print_ops):
+            #     attn_logits = attn_logits * 1
             #################################################################################################################
             attn_logits += attn_mask
 
             ################################################## PRINTS ########################################################
-            print_ops = []
-            enc_dec = "decoder" if isDecoder else "encoder"
-            if self.name == "self_attn_sublayer" and not isDecoder:
-                print_ops.append(
-                    tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
-                                       "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
-                                       summarize=10000))
-            with tf.control_dependencies(print_ops):
-                attn_logits = attn_logits * 1
+            # print_ops = []
+            # enc_dec = "decoder" if isDecoder else "encoder"
+            # if self.name == "self_attn_sublayer" and not isDecoder:
+            #     print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+            #                            "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
+            #                            summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     attn_logits = attn_logits * 1
             #################################################################################################################
 
 

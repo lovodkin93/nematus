@@ -295,7 +295,7 @@ class Transformer(object):
         target_ids_out = tf.transpose(a=inputs.y, perm=[1, 0])
         target_mask = tf.transpose(a=inputs.y_mask, perm=[1, 0])
 
-        if self.config.same_scene_head:
+        if self.config.source_same_scene_head:
             source_same_scene_mask = tf.transpose(a=inputs.x_same_scene_mask)
         else:
             source_same_scene_mask = None
@@ -482,7 +482,7 @@ class TransformerEncoder(object):
 
 
 
-            if self.config.same_scene_head:
+            if self.config.source_same_scene_head:
                 if self.config.source_same_scene_masks_layers == "all_layers":
                     same_scene_mask_layers = list(range(1, self.config.transformer_enc_depth + 1))
                 else:

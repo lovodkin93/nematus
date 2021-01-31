@@ -265,7 +265,7 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
-            if config.same_scene_head:
+            if config.source_same_scene_head:
                 source_sents, same_scene_masks = list(zip(*source_sents))
                 source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
             else:
@@ -672,7 +672,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
-        if config.same_scene_head:
+        if config.source_same_scene_head:
             source_sents, same_scene_masks = list(zip(*source_sents))
             source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
         else:

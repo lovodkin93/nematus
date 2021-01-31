@@ -239,7 +239,7 @@ class ModelUpdater(object):
                     # sentences to later calculation
                     feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = apply_grads
-                if self._config.same_scene_head:
+                if self._config.source_same_scene_head:
                     feed_dict[self._replicas[j].inputs.x_same_scene_mask] = split_x_same_scene_mask[i + j]
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]

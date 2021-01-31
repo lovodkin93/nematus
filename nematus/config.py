@@ -377,8 +377,8 @@ class ConfigSpecification:
             help='True if system uses one head to attend any token neighboring current one (default: False)'))
 
         group.append(ParameterSpecification(
-            name='same_scene_head', default=False,
-            visible_arg_names=['--same_scene_head'],
+            name='source_same_scene_head', default=False,
+            visible_arg_names=['--source_same_scene_head'],
             action='store_true',
             help='True if system uses one head to attend only to tokens in the same scene as current one (default: False)'))
 
@@ -1344,8 +1344,8 @@ def _check_config_consistency(spec, config, set_by_user):
                   '--valid_target_dataset'
             error_messages.append(msg)
 
-    if config.same_scene_head and (not config.valid_same_scene_masks or not config.same_scene_masks):
-        msg ='--same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
+    if config.source_same_scene_head and (not config.valid_same_scene_masks or not config.same_scene_masks):
+        msg ='--source_same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
         error_messages.append(msg)
 
     if ((config.valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
