@@ -129,8 +129,8 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
                 same_scene_mask = None
 
             y_dummy = numpy.zeros(shape=(len(x), 1))
-            x, x_mask, _, _, _, _, _,same_scene_mask = util.prepare_data(x, y_dummy, None, None, None, config.factors,
-                                                         same_scene_mask, maxlen=None)
+            x, x_mask, _, _, _, _, _,same_scene_mask, _ = util.prepare_data(x, y_dummy, None, None, None, config.factors,
+                                                         source_same_scene_masks=same_scene_mask, target_same_scene_masks=None, maxlen=None) #FIXME: AVIVSL - make sure the target_same_scene_masks really need to be None
             # logging.info(f"Batch size {x.shape}, minibatch_size {minibatch_size}, maxibatch_size {maxibatch_size}")
             sample = translate_batch(session, sampler, x, x_mask,
                                      max_translation_len, normalization_alpha, same_scene_mask)

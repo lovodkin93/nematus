@@ -61,6 +61,8 @@ def main(settings):
             config = load_config_from_json_file(model)
             setattr(config, 'reload', model)
             configs.append(config)
+            # if configs[0].same_scene_head: #FIXME: AVIVSL delete in the end (relevant just for a specific model and is outdated)
+            #     configs[0].source_same_scene_head = True
             # print("config",config)
             # raise
 
@@ -113,10 +115,13 @@ def main(settings):
             out = open(settings.output_path, "w")
         else:
             out = settings.output
-        if configs[0].same_scene_masks is not None: #TODO: AVIVSL if running - make sure works
-            same_scene_masks = open(configs[0].same_scene_masks, "r")
-        else: #TODO: AVIVSL if running - make sure works
+
+        if settings.source_same_scene_mask is not None: #TODO: AVIVSL if running - make sure works
+            same_scene_masks = open(settings.source_same_scene_mask, "r") #TODO: AVIVSL make sure if legit
+            configs[0].source_same_scene_head = True #TODO: AVIVSL probably need to delete?
+        else:
             same_scene_masks = None
+
         # Translate the source file.
         translate_utils.translate_file(
             input_file=settings.input,
@@ -132,7 +137,7 @@ def main(settings):
             maxibatch_size=settings.maxibatch_size)
         if settings.output_path is not None:
             out.close()
-        if configs[0].same_scene_masks is not None: #TODO: AVIVSL if running - make sure works
+        if settings.source_same_scene_mask is not None: #TODO: AVIVSL if running - make sure works
             same_scene_masks.close()
 if __name__ == "__main__":
     main(settings)

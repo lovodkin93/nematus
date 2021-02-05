@@ -391,7 +391,7 @@ class ConfigSpecification:
         group.append(ParameterSpecification(
             name='source_same_scene_masks_layers', default='all_layers',
             visible_arg_names=['--source_same_scene_masks_layers'],
-            type=str, metavar='PATH',
+            type=str,
             help='which layers to apply the same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
 
 

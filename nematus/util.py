@@ -75,7 +75,7 @@ def reset_dict_indexes(d):
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 
 
-def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, same_scene_masks_x, maxlen=None):
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, source_same_scene_masks, target_same_scene_masks=None, maxlen=None): #FIXME: AVIVSL make sure everyone sends target_same_scene_mask
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
@@ -102,7 +102,8 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         new_seqs_y = []
         new_lengths_x = []
         new_lengths_y = []
-        new_same_scene_masks_x = []
+        new_source_same_scene_masks = []
+        new_target_same_scene_masks = []
         kept = []
         for i, (l_x, s_x, l_y, s_y) in enumerate(zip(lengths_x, seqs_x, lengths_y, seqs_y)):
             if l_x < maxlen and l_y < maxlen:
@@ -110,14 +111,17 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
                 new_lengths_x.append(l_x)
                 new_seqs_y.append(s_y)
                 new_lengths_y.append(l_y)
-                if same_scene_masks_x is not None:
-                    new_same_scene_masks_x.append(same_scene_masks_x[i])
+                if source_same_scene_masks is not None:
+                    new_source_same_scene_masks.append(source_same_scene_masks[i])
+                if target_same_scene_masks is not None:
+                    new_target_same_scene_masks.append(target_same_scene_masks[i])
                 kept.append(i)
         lengths_x = new_lengths_x
         seqs_x = new_seqs_x
         lengths_y = new_lengths_y
         seqs_y = new_seqs_y
-        same_scene_masks_x = new_same_scene_masks_x if same_scene_masks_x is not None else None
+        source_same_scene_masks = new_source_same_scene_masks if source_same_scene_masks is not None else None
+        target_same_scene_masks = new_target_same_scene_masks if target_same_scene_masks is not None else None
         if seq_parents_time is not None:
             seq_parents_time = seq_parents_time[..., kept]
         if seq_edges_time is not None:
@@ -133,26 +137,30 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
     y = numpy.zeros((maxlen_y, n_samples)).astype('int64')
     x_mask = numpy.zeros((maxlen_x, n_samples)).astype('float32')
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
-    x_ss_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if same_scene_masks_x is not None else None
+    sss_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if source_same_scene_masks is not None else None # source same scene mask
+    tss_mask = numpy.zeros((maxlen_y, maxlen_y, n_samples)).astype('float32') if target_same_scene_masks is not None else None # target same scene mask
 
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
         x[:, :lengths_x[idx], idx] = list(zip(*s_x))
         x_mask[:lengths_x[idx] + 1, idx] = 1.
         y[:lengths_y[idx], idx] = s_y
         y_mask[:lengths_y[idx] + 1, idx] = 1.
-        if same_scene_masks_x is not None:
+        if source_same_scene_masks is not None:
             # try:
-            x_ss_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*same_scene_masks_x[idx]))
+            sss_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*source_same_scene_masks[idx]))
             # except:
             #     print("AVIVSL:")
-            #     print("idx is: {}, shape of same_scene_masks_x is: {} , len of same_scene_masks_x[idx] is: {}, len of each element in same_scene_masks_x[idx] is {}\n".format(idx, same_scene_masks_x.shape, len(list(zip(*same_scene_masks_x[idx]))), len(list(zip(*same_scene_masks_x[idx]))[0])))
-            #     print("shape of x_ss_mask is: {}\n".format(x_ss_mask.shape))
+            #     print("idx is: {}, shape of source_same_scene_masks is: {} , len of source_same_scene_masks[idx] is: {}, len of each element in source_same_scene_masks[idx] is {}\n".format(idx, source_same_scene_masks.shape, len(list(zip(*source_same_scene_masks[idx]))), len(list(zip(*source_same_scene_masks[idx]))[0])))
+            #     print("shape of sss_mask is: {}\n".format(sss_mask.shape))
             #     print("lengths_x is: {}\n".format(lengths_x))
-            #     print("llist(zip(*same_scene_masks_x[idx])) is: {}\n".format(list(zip(*same_scene_masks_x[idx]))))
+            #     print("llist(zip(*source_same_scene_masks[idx])) is: {}\n".format(list(zip(*source_same_scene_masks[idx]))))
             #     exit(1)
-            x_ss_mask[lengths_x[idx], lengths_x[idx], idx] = 1 # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
+            sss_mask[lengths_x[idx], lengths_x[idx], idx] = 1 # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
+        if target_same_scene_masks is not None:
+            tss_mask[:lengths_y[idx], :lengths_y[idx], idx] = list(zip(*target_same_scene_masks[idx]))
+            tss_mask[lengths_y[idx], lengths_y[idx], idx] = 1  # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
 
-    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, x_ss_mask
+    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, sss_mask, tss_mask
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
 
 

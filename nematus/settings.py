@@ -86,6 +86,10 @@ class TranslationSettings(BaseSettings):
                 '--output_path', type=str,
                 default="",
                 help="output file path")
+            self._parser.add_argument(
+                '--source_same_scene_mask', type=str,
+                default=None, metavar='PATH',
+                help="source_same_scene_mask file (default: None)")
 
         self._parser.add_argument(
             '-k', '--beam_size', type=int, default=5, metavar='INT',
@@ -120,6 +124,7 @@ class TranslationSettings(BaseSettings):
         self._parser.add_argument(
             '--translation_strategy', type=str, choices=['beam_search', 'sampling'], default="beam_search",
             help="translation_strategy, either beam_search or sampling (default: %(default)s)")
+
 
     def _set_additional_vars(self):
         self.request_id = uuid.uuid4()

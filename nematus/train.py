@@ -258,7 +258,15 @@ def train(config, sess):
             #     logging.info("AVIVSL10: third sentence is {0}, and its mask is {1}" .format(source3,same_scene_masks[2]))
             # logging.info("AVIVSL13: length of source_sents is {0} and of same_scene_masks is {1}" .format(len(source_sents), len(same_scene_masks)))
             if config.target_graph:
-                target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
+                if config.target_same_scene_head:
+                    target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = list(zip(*target_sents))
+                    target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = \
+                        list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time), list(target_same_scene_masks)
+                else:
+                    target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
+                    target_sents, target_edges_time, target_labels_time, target_parents_time = \
+                        list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time)
+                    target_same_scene_masks = None
                 logging.info(f"max len {max([len(x) for x in target_sents])}")
                 # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
                 # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
@@ -267,11 +275,16 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
+                if config.target_same_scene_head:
+                    target_sents, target_same_scene_masks = list(zip(*target_sents))
+                    target_sents, target_same_scene_masks = list(target_sents), list(target_same_scene_masks)
+                else:
+                    target_same_scene_masks = None
             if config.source_same_scene_head:
-                source_sents, same_scene_masks = list(zip(*source_sents))
-                source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
+                source_sents, source_same_scene_masks = list(zip(*source_sents))
+                source_sents, source_same_scene_masks = list(source_sents), list(source_same_scene_masks)
             else:
-                same_scene_masks = None
+                source_same_scene_masks = None
             #logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
             if len(source_sents[0][0]) != config.factors:
                 logging.error(
@@ -283,9 +296,9 @@ def train(config, sess):
             # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
             # logging.info("Source sents " + str(source_sents) + " .")
             # logging.info("Target sents " + str(target_sents) + " .")
-            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask_in \
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, source_same_scene_mask_in , target_same_scene_mask_in \
                 = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time,
-                                    target_parents_time, config.factors, same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
+                                    target_parents_time, config.factors, source_same_scene_masks, target_same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
             # logging.info("AVIVSL16: factors are {0}".format(config.factors))
             # source_x = ' '.join([num_to_source[0][word[0]] for word in x_in[0]])
             # source_y = ' '.join([num_to_target[word[0]] for word in y_in])
@@ -305,7 +318,7 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=x_same_scene_mask_in)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=source_same_scene_mask_in)
             #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
@@ -344,11 +357,11 @@ def train(config, sess):
                 x_small = x_in[:, :, :10]
                 x_mask_small = x_mask_in[:, :10]
                 y_small = y_in[:, :10]
-                if x_same_scene_mask_in is not None:
-                    x_same_scene_mask_small = x_same_scene_mask_in[:, :, :10]
+                if source_same_scene_mask_in is not None:
+                    source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
                 samples = translate_utils.translate_batch(
                     sess, random_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, 0.0, x_same_scene_mask_small)
+                    config.translation_maxlen, 0.0, source_same_scene_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -365,13 +378,13 @@ def train(config, sess):
                 x_small = x_in[:, :, :10]
                 x_mask_small = x_mask_in[:, :10]
                 y_small = y_in[:, :10]
-                if x_same_scene_mask_in is not None:
-                    x_same_scene_mask_small = x_same_scene_mask_in[:, :, :10]
+                if source_same_scene_mask_in is not None:
+                    source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
                 else:
-                    x_same_scene_mask_small = None
+                    source_same_scene_mask_small = None
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, config.normalization_alpha, x_same_scene_mask_small)
+                    config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -674,11 +687,11 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
-        if config.source_same_scene_head:
-            source_sents, same_scene_masks = list(zip(*source_sents))
-            source_sents, same_scene_masks = list(source_sents), list(same_scene_masks)
+        if text_iterator.source_same_scene_mask_orig:
+            source_sents, source_same_scene_masks = list(zip(*source_sents))
+            source_sents, source_same_scene_masks = list(source_sents), list(source_same_scene_masks)
         else:
-            same_scene_masks = None
+            source_same_scene_masks = None
         logging.info(f"Source len {len(source_sents)}")
         if not source_sents or not source_sents[0]:
             logging.error(f"Excepted source sents instead got: {source_sents}, target: {target_sents}, seen: {len(ce_vals)}")
@@ -692,7 +705,15 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
                 config.factors, len(source_sents[0][0])))
             sys.exit(1)
         if config.target_graph:
-            target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
+            if text_iterator.target_same_scene_mask_orig:
+                target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = list(zip(*target_sents))
+                target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = \
+                    list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time), list(target_same_scene_masks)
+            else:
+                target_sents, target_edges_time, target_labels_time, target_parents_time = list(zip(*target_sents))
+                target_sents, target_edges_time, target_labels_time, target_parents_time = \
+                    list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time)
+                target_same_scene_masks = None
             # # pad target sents to max_len so overall padding would occur (gcn does not allow dynamic sizes)
             # target_sents = [sent + [0] * (config.maxlen - 1 - len(sent)) for sent in target_sents]
             # source_sents = [sent + [[0]] * (config.maxlen - 1 - len(sent)) for sent in source_sents]
@@ -701,14 +722,21 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             target_edges_time = None
             target_labels_time = None
             target_parents_time = None
+            if text_iterator.target_same_scene_mask_orig:
+                target_sents, target_same_scene_masks = list(zip(*target_sents))
+                target_sents, target_same_scene_masks = list(target_sents), list(target_same_scene_masks)
+            else:
+                target_same_scene_masks = None
 
-        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask = util.prepare_data(source_sents,
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, target_same_scene_mask = \
+                                                                             util.prepare_data(source_sents,
                                                                                                target_sents,
                                                                                                target_edges_time,
                                                                                                target_labels_time,
                                                                                                target_parents_time,
                                                                                                config.factors,
-                                                                                               same_scene_masks,
+                                                                                               source_same_scene_masks,
+                                                                                               target_same_scene_masks,
                                                                                                maxlen=None)
 
         # # Run the minibatch through the model to get the sentence-level cross entropy values.
@@ -726,7 +754,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_same_scene_mask)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]

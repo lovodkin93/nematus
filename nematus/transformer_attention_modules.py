@@ -190,12 +190,12 @@ class MultiHeadAttentionLayer(object):
             ################################################## PRINTS ########################################################
             # print_ops = []
             # enc_dec = "decoder" if isDecoder else "encoder"
-            # if self.name == "self_attn_sublayer" and not isDecoder:
+            # if self.name == "self_attn_sublayer" and isDecoder:
             #     print_ops.append(
             #         tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
             #                            "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
             #     print_ops.append(
-            #          tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+            #          tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[1, 0, :, :]],
             #                             "AVIVSL7: in " + enc_dec + " attn_logits (with shape) before mask" + self.name, summarize=10000))
             #     print_ops.append(
             #          tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "values " + self.name, 50, 100))
@@ -214,7 +214,7 @@ class MultiHeadAttentionLayer(object):
             # enc_dec = "decoder" if isDecoder else "encoder"
             # if self.name == "self_attn_sublayer" and not isDecoder:
             #     print_ops.append(
-            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[2, 0, :, :]],
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[1, 0, :, :]],
             #                            "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
             #                            summarize=10000))
             # with tf.control_dependencies(print_ops):

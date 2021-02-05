@@ -164,7 +164,7 @@ class Transformer(object):
                                             name='loss_layer')
 
             masked_loss, sentence_loss, batch_loss = \
-                loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training)
+                loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training) #TODO: AVIVSL: the endgame - to reach here
             if self.config.edge_num_constrain > 0:
                 if self.config.split_transitions:
                     raise NotImplementedError()
@@ -507,6 +507,7 @@ class TransformerEncoder(object):
                 if same_scene_mask is not None and layer_id in same_scene_mask_layers:
                     attention_rules.append(same_scene_mask)
 
+
                 if attention_rules:
                     new_self_attn_mask = self.combine_attention_rules(attention_rules, self_attn_mask)
                 else:
@@ -526,6 +527,8 @@ class TransformerEncoder(object):
                     'self_attn'].forward(enc_output, None, new_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
+
+
         return enc_output, cross_attn_mask
 
     def combine_attention_rules(self, attention_rules, self_attn_mask):
