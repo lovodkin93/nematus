@@ -318,7 +318,7 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_same_scene_mask=source_same_scene_mask_in)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in)
             #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output

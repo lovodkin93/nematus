@@ -190,7 +190,7 @@ class MultiHeadAttentionLayer(object):
             ################################################## PRINTS ########################################################
             # print_ops = []
             # enc_dec = "decoder" if isDecoder else "encoder"
-            # if self.name == "self_attn_sublayer" and isDecoder:
+            # if self.name == "self_attn_sublayer" and not isDecoder:
             #     print_ops.append(
             #         tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
             #                            "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
@@ -215,12 +215,12 @@ class MultiHeadAttentionLayer(object):
             # if self.name == "self_attn_sublayer" and not isDecoder:
             #     print_ops.append(
             #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[1, 0, :, :]],
-            #                            "AVIVSL7: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
+            #                            "AVIVSL8: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
             #                            summarize=10000))
             # with tf.control_dependencies(print_ops):
             #     attn_logits = attn_logits * 1
             #################################################################################################################
-
+            # to see the order of sentences in the batch, search for "PRINT TO SEE THE ORDER OF SENTENCES" in transformer.py
 
 
 

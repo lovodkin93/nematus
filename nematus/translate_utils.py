@@ -56,7 +56,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
             feed_dict[model.inputs.x] = x
             feed_dict[model.inputs.x_mask] = x_mask
             if same_scene_mask is not None:
-                feed_dict[model.inputs.x_same_scene_mask] = same_scene_mask
+                feed_dict[model.inputs.x_source_same_scene_mask] = same_scene_mask
             # logging.info(f"x, x_mask in translate {x.shape}, {x_mask.shape}, {x}, {x_mask}")
         feed_dict[model.inputs.training] = False
 

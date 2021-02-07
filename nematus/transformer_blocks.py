@@ -77,12 +77,14 @@ class AttentionBlock(object):
             assert (memory_context is not None), \
                 'Encoder memories have to be provided for encoder-decoder attention computation.'
 
+        ################################ PRINT ###################################################
         # print_ops = []
-        # if self.self_attention and isDecoder:
+        # if self.self_attention and not isDecoder:
         #     print_ops.append(
-        #         tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL8: attn_mask - self attention in decoder" , 50, 100))
+        #         tf.compat.v1.Print([], [tf.shape(inputs), inputs], "AVIVSL6: inputs - in encoder" , summarize=10000))
         # with tf.control_dependencies(print_ops):
         #     inputs = 1 * inputs
+        #############################################################################################
 
         attn_inputs = self.pre_attn.forward(inputs)
         attn_outputs, layer_memories = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories, isDecoder=isDecoder) #goes to MultiHeadAttentionLayer's forward in nematus.transformer_attention_modules

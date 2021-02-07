@@ -44,8 +44,8 @@ class ModelInputs(object):
             shape=())
 
         if config.source_same_scene_head:
-            self.x_same_scene_mask = tf.compat.v1.placeholder(
-                name='x_same_scene_mask',
+            self.x_source_same_scene_mask = tf.compat.v1.placeholder(
+                name='x_source_same_scene_mask',
                 shape=(seq_len, seq_len, batch_size),
                 dtype=tf.int32)
 
