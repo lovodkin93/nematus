@@ -396,14 +396,14 @@ class ConfigSpecification:
 
 
         group.append(ParameterSpecification(
-            name='same_scene_masks', default=None,
-            visible_arg_names=['--same_scene_masks'],
+            name='source_train_same_scene_masks', default=None,
+            visible_arg_names=['--source_train_same_scene_masks'],
             type=str, metavar='PATH',
             help='same scene mask for the source (train set)'))
 
         group.append(ParameterSpecification(
-            name='valid_same_scene_masks', default=None,
-            visible_arg_names=['--valid_same_scene_masks'],
+            name='source_valid_same_scene_masks', default=None,
+            visible_arg_names=['--source_valid_same_scene_masks'],
             type=str, metavar='PATH',
             help='same scene mask for the source (validation set)'))
 
@@ -856,9 +856,9 @@ class ConfigSpecification:
             help='source validation corpus for external evaluation bleu (default: %(default)s)'))
 
         group.append(ParameterSpecification(
-            name='valid_bleu_same_scene_masks', default=None,
-            visible_arg_names=['--valid_bleu_same_scene_masks'],
-            derivation_func=_derive_valid_bleu_same_scene_masks,
+            name='source_valid_bleu_same_scene_masks', default=None,
+            visible_arg_names=['--source_valid_bleu_same_scene_masks'],
+            derivation_func=_derive_source_valid_bleu_same_scene_masks,
             type=str, metavar='PATH',
             help='same_scene masks (of the source) for external evaluation bleu (default: %(default)s)'))
 
@@ -1356,17 +1356,17 @@ def _check_config_consistency(spec, config, set_by_user):
                   '--valid_target_dataset'
             error_messages.append(msg)
 
-    if config.source_same_scene_head and (not config.valid_same_scene_masks or not config.same_scene_masks):
-        msg ='--source_same_scene_head requires both --valid_same_scene_masks and --same_scene_masks'
+    if config.source_same_scene_head and (not config.source_valid_same_scene_masks or not config.source_train_same_scene_masks):
+        msg ='--source_same_scene_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
         error_messages.append(msg)
 
     if config.target_same_scene_head and (not config.target_same_scene_masks):
         msg ='--target_same_scene_head requires --target_same_scene_masks'
         error_messages.append(msg)
 
-    if ((config.valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
-        ((config.valid_bleu_same_scene_masks is not None)  and (config.valid_bleu_source_dataset is None)):
-        msg ='It is needed either both or neither of --valid_bleu_same_scene_masks and --valid_bleu_source_dataset flags'
+    if ((config.source_valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
+        ((config.source_valid_bleu_same_scene_masks is not None)  and (config.valid_bleu_source_dataset is None)):
+        msg ='It is needed either both or neither of --source_valid_bleu_same_scene_masks and --valid_bleu_source_dataset flags'
         error_messages.append(msg)
 
 
@@ -1560,13 +1560,13 @@ def _derive_valid_target_dataset(config, meta_config):
         return config.valid_datasets[1]
     return None
 
-# if 'valid_bleu_same_scene_masks' is not declared, then set it same
-# as 'same_scene_masks'
-def _derive_valid_bleu_same_scene_masks(config, meta_config):
-    if config.valid_bleu_same_scene_masks is not None:
-        return config.valid_bleu_same_scene_masks
+# if 'source_valid_bleu_same_scene_masks' is not declared, then set it same
+# as 'source_valid_same_scene_masks'
+def _derive_source_valid_bleu_same_scene_masks(config, meta_config):
+    if config.source_valid_bleu_same_scene_masks is not None:
+        return config.source_valid_bleu_same_scene_masks
     else:
-        return config.valid_same_scene_masks
+        return config.source_valid_same_scene_masks
 
 
 def _determine_vocab_size_from_file(path, model_type):

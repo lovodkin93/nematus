@@ -85,7 +85,7 @@ def load_data(config):
         target_graph=config.target_graph,
         target_labels_num=config.target_labels_num,
         splitted_action=config.split_transitions,
-        source_same_scene_mask=config.same_scene_masks,
+        source_same_scene_mask=config.source_train_same_scene_masks,
         target_same_scene_mask=config.target_same_scene_masks
     )
 
@@ -112,7 +112,7 @@ def load_data(config):
             target_labels_num=config.target_labels_num,
             splitted_action=config.split_transitions,
             ignore_empty=True,
-            source_same_scene_mask=config.valid_same_scene_masks,
+            source_same_scene_mask=config.source_valid_same_scene_masks,
             target_same_scene_mask=None
         )
     else:
@@ -545,9 +545,9 @@ def validate_with_script(session, beam_search_sampler):
     logging.info('Starting external validation.')
     out = tempfile.NamedTemporaryFile(mode='w')
 
-    #if config.valid_same_scene_masks
-    if config.valid_bleu_same_scene_masks is not None:
-        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile, open(config.valid_bleu_same_scene_masks, encoding="UTF-8") as same_scene_masks_file: #TODO: AVIVSL make sure if encoding="UTF-8" in the same_scene_mask does problems
+    #if config.source_valid_same_scene_masks
+    if config.source_valid_bleu_same_scene_masks is not None:
+        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile, open(config.source_valid_bleu_same_scene_masks, encoding="UTF-8") as same_scene_masks_file: #TODO: AVIVSL make sure if encoding="UTF-8" in the same_scene_mask does problems
             translate_utils.translate_file(
                 input_file=infile,
                 output_file=out,
