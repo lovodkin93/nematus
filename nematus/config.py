@@ -408,10 +408,16 @@ class ConfigSpecification:
             help='same scene mask for the source (validation set)'))
 
         group.append(ParameterSpecification(
-            name='target_same_scene_masks', default=None,
-            visible_arg_names=['--target_same_scene_masks'],
+            name='target_train_same_scene_masks', default=None,
+            visible_arg_names=['--target_train_same_scene_masks'],
             type=str, metavar='PATH',
             help='same scene mask for the target (train set)'))
+
+        group.append(ParameterSpecification(
+            name='target_valid_same_scene_masks', default=None,
+            visible_arg_names=['--target_valid_same_scene_masks'],
+            type=str, metavar='PATH',
+            help='same scene mask for the target (validation set)'))
 
 
         group.append(ParameterSpecification(
@@ -861,6 +867,13 @@ class ConfigSpecification:
             derivation_func=_derive_source_valid_bleu_same_scene_masks,
             type=str, metavar='PATH',
             help='same_scene masks (of the source) for external evaluation bleu (default: %(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='target_valid_bleu_same_scene_masks', default=None,
+            visible_arg_names=['--target_valid_bleu_same_scene_masks'],
+            derivation_func=_derive_target_valid_bleu_same_scene_masks,
+            type=str, metavar='PATH',
+            help='same_scene masks (of the target) for external evaluation bleu (default: %(default)s)'))
 
 
         group.append(ParameterSpecification(
@@ -1360,8 +1373,8 @@ def _check_config_consistency(spec, config, set_by_user):
         msg ='--source_same_scene_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
         error_messages.append(msg)
 
-    if config.target_same_scene_head and (not config.target_same_scene_masks):
-        msg ='--target_same_scene_head requires --target_same_scene_masks'
+    if config.target_same_scene_head and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
+        msg ='--target_same_scene_head requires --target_train_same_scene_masks and --target_valid_same_scene_masks'
         error_messages.append(msg)
 
     if ((config.source_valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
@@ -1568,6 +1581,14 @@ def _derive_source_valid_bleu_same_scene_masks(config, meta_config):
     else:
         return config.source_valid_same_scene_masks
 
+
+# if 'target_valid_bleu_same_scene_masks' is not declared, then set it same
+# as 'target_valid_same_scene_masks'
+def _derive_target_valid_bleu_same_scene_masks(config, meta_config):
+    if config.target_valid_bleu_same_scene_masks is not None:
+        return config.target_valid_bleu_same_scene_masks
+    else:
+        return config.target_valid_same_scene_masks
 
 def _determine_vocab_size_from_file(path, model_type):
     try:

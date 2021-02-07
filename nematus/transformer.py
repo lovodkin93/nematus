@@ -300,11 +300,29 @@ class Transformer(object):
         else:
             source_same_scene_mask = None
 
+        if self.config.target_same_scene_head:
+            target_same_scene_mask = tf.transpose(a=inputs.y_target_same_scene_mask)
+        else:
+            target_same_scene_mask = None #TODO: AVIVSL stopped here
+
+
+
+        ###################################################### PRINT #####################################################################################
         # print_ops = []
         # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_ids), source_ids], "AVIVSL15: source_ids is:", 100, 200))
         # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_same_scene_mask), source_same_scene_mask], "AVIVSL16: same scene mask is:", summarize=10000))
         # with tf.control_dependencies(print_ops):
         #       source_ids = source_ids * 1
+        ##################################################################################################################################################
+
+        # #################################################################### PRINT ################################################################################
+        # print_ops = []
+        # if target_ids_out is not None and target_same_scene_mask is not None:
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(target_ids_out), target_ids_out], "AVIVSL15: target_ids_out is:", summarize=10000))
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(target_same_scene_mask), target_same_scene_mask], "AVIVSL16: same scene mask is:", summarize=10000))
+        # with tf.control_dependencies(print_ops):
+        #       source_ids = source_ids * 1
+        # ###########################################################################################################################################################
 
         if self.config.target_graph:
             edges = inputs.edges

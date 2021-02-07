@@ -86,7 +86,7 @@ def load_data(config):
         target_labels_num=config.target_labels_num,
         splitted_action=config.split_transitions,
         source_same_scene_mask=config.source_train_same_scene_masks,
-        target_same_scene_mask=config.target_same_scene_masks
+        target_same_scene_mask=config.target_train_same_scene_masks
     )
 
     if config.valid_freq and config.valid_source_dataset and config.valid_target_dataset:
@@ -113,7 +113,7 @@ def load_data(config):
             splitted_action=config.split_transitions,
             ignore_empty=True,
             source_same_scene_mask=config.source_valid_same_scene_masks,
-            target_same_scene_mask=None
+            target_same_scene_mask=config.target_valid_same_scene_masks
         )
     else:
         logging.info('no validation set loaded')
@@ -318,7 +318,7 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in, y_target_same_scene_mask=target_same_scene_mask_in)
             #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
@@ -359,6 +359,8 @@ def train(config, sess):
                 y_small = y_in[:, :10]
                 if source_same_scene_mask_in is not None:
                     source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
+                else:
+                    source_same_scene_mask_small = None
                 samples = translate_utils.translate_batch(
                     sess, random_sampler, x_small, x_mask_small,
                     config.translation_maxlen, 0.0, source_same_scene_mask_small)
@@ -382,6 +384,11 @@ def train(config, sess):
                     source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
                 else:
                     source_same_scene_mask_small = None
+                if target_same_scene_mask_in is not None:
+                    target_same_scene_mask_small = target_same_scene_mask_in[:, :, :10]
+                else:
+                    target_same_scene_mask_small = None
+
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
                     config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small)
@@ -754,7 +761,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, target_same_scene_mask)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]

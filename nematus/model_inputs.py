@@ -49,6 +49,12 @@ class ModelInputs(object):
                 shape=(seq_len, seq_len, batch_size),
                 dtype=tf.int32)
 
+        if config.target_same_scene_head:
+            self.y_target_same_scene_mask = tf.compat.v1.placeholder(
+                name='y_target_same_scene_mask',
+                shape=(seq_len, seq_len, batch_size),
+                dtype=tf.int32)
+
         if config.target_graph:
             edge_labels_num = 3 # (self left right)
             if config.target_labels_num is None:
