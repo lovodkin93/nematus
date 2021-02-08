@@ -584,6 +584,21 @@ class MaskedCrossEntropy(object):
             # Compute token-level loss
             flat_logits = tf.reshape(logits, [-1, self.vocab_size])
             flat_targets = tf.reshape(projected_targets, [-1, self.vocab_size])
+
+
+            ################################################# PRINT ###################################################
+            # print_ops = []
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(self.vocab_size), self.vocab_size], "AVIVSL8: self.vocab_size shape, self.vocab_size ", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(projected_targets), projected_targets], "AVIVSL9: flat_targets shape, projected_targets shape", summarize=1000000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(target_mask), target_mask], "AVIVSL10: target_mask shape, target_mask ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     flat_logits = flat_logits * 1  # TODO delete
+            ###########################################################################################################
+
+
             flat_loss = tf.nn.softmax_cross_entropy_with_logits(logits=flat_logits, labels=flat_targets) #TODO: AVIVSL ask Leshem - add somwhere here? and what is the difference between the three types of losses?
             flat_normalized_loss = flat_loss - normalizing_factor
             # Compute sentence- and batch-level losses (i.e. mean token-loss per sentence/ batch)

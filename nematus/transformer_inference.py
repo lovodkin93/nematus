@@ -204,10 +204,10 @@ class ModelAdapter:
                         layer_memories = None
                     else:
                         layer_memories = memories[mem_key]
-                    layer_output, memories[mem_key] = \
+                    layer_output, memories[mem_key], _ = \
                         layer['self_attn'].forward(
                             layer_output, None, self_attn_mask, layer_memories)
-                    layer_output, _ = layer['cross_attn'].forward(
+                    layer_output, _, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
                         encoder_output.cross_attn_mask)
                     layer_output = layer['ffn'].forward(layer_output)

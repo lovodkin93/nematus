@@ -229,16 +229,17 @@ class MultiHeadAttentionLayer(object):
         # Optionally apply dropout:
         if self.dropout_attn > 0.0:
             attn_weights = tf.compat.v1.layers.dropout(attn_weights, rate=self.dropout_attn, training=self.training)
-        # print_ops = []
-        # print_ops.append(
-        #     tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[..., :10]], "attn_weights " + self.name, 50,
-        #                        100))
-        # if "cross" in self.name:
-        #     print_ops = []
-        # with tf.control_dependencies(print_ops):
         # Weigh attention values
         weighted_memories = tf.matmul(attn_weights, values)
-        return weighted_memories
+        # ############################################### PRINTING #######################################################
+        # printops = []
+        # if isDecoder:
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights],
+        #                                    "AVIVSL7: attn_softmax_weights ", summarize=10000))
+        # with tf.control_dependencies(printops):
+        #     weighted_memories = weighted_memories * 1
+        ################################################################################################################
+        return weighted_memories, attn_weights
 
     def forward(self, query_context, memory_context, attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends same_scene_masks
         """ Propagates the input information through the attention layer. """
@@ -276,7 +277,7 @@ class MultiHeadAttentionLayer(object):
         split_keys = self._split_among_heads(keys)
         split_values = self._split_among_heads(values)
         # Apply attention function
-        split_weighted_memories = self._dot_product_attn(split_queries, split_keys, split_values, attn_mask,
+        split_weighted_memories, attn_softmax_weights = self._dot_product_attn(split_queries, split_keys, split_values, attn_mask,
                                                          scaling_on=True, isDecoder=isDecoder)
         # Merge head output
         weighted_memories = self._merge_from_heads(split_weighted_memories)
@@ -294,7 +295,7 @@ class MultiHeadAttentionLayer(object):
         #     projected_memories = projected_memories * 1
         #########################################################################################################################
 
-        return projected_memories, layer_memories
+        return projected_memories, layer_memories, attn_softmax_weights
 
 
 class SingleHeadAttentionLayer(object):

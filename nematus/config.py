@@ -383,16 +383,22 @@ class ConfigSpecification:
             help='True if system uses one head to attend only to tokens in the same scene as current one in encoder (default: False)'))
 
         group.append(ParameterSpecification(
-            name='target_same_scene_head', default=False,
-            visible_arg_names=['--target_same_scene_head'],
+            name='target_same_scene_head_loss', default=False,
+            visible_arg_names=['--target_same_scene_head_loss'],
             action='store_true',
-            help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (default: False)'))
+            help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (learnt by adding the softmax values of the decoder layers to the loss function) (default: False)'))
 
         group.append(ParameterSpecification(
             name='source_same_scene_masks_layers', default='all_layers',
             visible_arg_names=['--source_same_scene_masks_layers'],
             type=str,
             help='which layers to apply the source same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_masks_layers', default='all_layers',
+            visible_arg_names=['--target_same_scene_masks_layers'],
+            type=str,
+            help='which layers to apply the target same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
 
 
         group.append(ParameterSpecification(
@@ -1373,8 +1379,8 @@ def _check_config_consistency(spec, config, set_by_user):
         msg ='--source_same_scene_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
         error_messages.append(msg)
 
-    if config.target_same_scene_head and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
-        msg ='--target_same_scene_head requires --target_train_same_scene_masks and --target_valid_same_scene_masks'
+    if config.target_same_scene_head_loss and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
+        msg ='--target_same_scene_head_loss requires --target_train_same_scene_masks and --target_valid_same_scene_masks'
         error_messages.append(msg)
 
     if ((config.source_valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \

@@ -87,9 +87,20 @@ class AttentionBlock(object):
         #############################################################################################
 
         attn_inputs = self.pre_attn.forward(inputs)
-        attn_outputs, layer_memories = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories, isDecoder=isDecoder) #goes to MultiHeadAttentionLayer's forward in nematus.transformer_attention_modules
+        attn_outputs, layer_memories, attn_softmax_weights = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories, isDecoder=isDecoder) #goes to MultiHeadAttentionLayer's forward in nematus.transformer_attention_modules
         block_out = self.post_attn.forward(attn_outputs, residual_inputs=inputs)
-        return block_out, layer_memories
+
+
+        ############################################### PRINTING #######################################################
+        # printops = []
+        # if isDecoder:
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_softmax_weights), attn_softmax_weights],
+        #                                    "AVIVSL8: attn_softmax_weights ", summarize=10000))
+        # with tf.control_dependencies(printops):
+        #     block_out = block_out * 1
+        ################################################################################################################
+
+        return block_out, layer_memories, attn_softmax_weights
 
 
 class FFNBlock(object):

@@ -110,9 +110,9 @@ class Transformer(object):
 
             # Decode into target sequences
             with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
-                logits = self.dec.decode_at_train(self.target_ids_in,
+                logits, attn_softmax_weights_list = self.dec.decode_at_train(self.target_ids_in,
                                                   enc_output,
-                                                  cross_attn_mask, self.edges, self.labels, self.parents)
+                                                  cross_attn_mask, self.edges, self.labels, self.parents) #TODO: AVIVSL stopped here
 
             original_mask_shape = tf.shape(self.target_mask)
             if not SQUASH and self.config.target_graph:
@@ -130,8 +130,14 @@ class Transformer(object):
                 # with tf.control_dependencies(print_ops):
                 self.target_mask = tf.minimum(repeat(self.target_mask, timesteps, 0),
                                               tf.tile(tf.eye(timesteps), [num_sentences, 1]))
-
+            ################################################# PRINT ###################################################
             # print_ops = []
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(logits), tf.shape(self.target_mask)], "AVIVSL9: shape logits, shape target_mask ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     logits = logits * 1  # TODO delete
+            ###########################################################################################################
+            #print_ops = []
             # # def printer(logits):
             # #     print([self.target_tokens[i] for i in tf.math.argmax(logits[0, :, :])]
             # #           )
@@ -165,6 +171,16 @@ class Transformer(object):
 
             masked_loss, sentence_loss, batch_loss = \
                 loss_layer.forward(logits, self.target_ids_out, self.target_mask, self.training) #TODO: AVIVSL: the endgame - to reach here
+
+            # ################################################# PRINT ###################################################
+            # print_ops = []
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(loss_layer.time_dim), loss_layer.time_dim], "AVIVSL9: shape loss_layer.time_dim, loss_layer.time_dim ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     sentence_loss = sentence_loss * 1  # TODO delete
+            # ###########################################################################################################
+
+
             if self.config.edge_num_constrain > 0:
                 if self.config.split_transitions:
                     raise NotImplementedError()
@@ -178,6 +194,7 @@ class Transformer(object):
                 masked_loss -= masked_cons * self.config.edge_num_constrain
                 sentence_loss -= sentence_cons * self.config.edge_num_constrain
                 batch_loss -= batch_cons * self.config.edge_num_constrain
+
             if self.config.inverse_loss:
                 inverse_rate = 0.5
                 inverse_loss = MaskedCrossEntropy(self.dec_vocab_size,
@@ -300,7 +317,7 @@ class Transformer(object):
         else:
             source_same_scene_mask = None
 
-        if self.config.target_same_scene_head:
+        if self.config.target_same_scene_head_loss:
             target_same_scene_mask = tf.transpose(a=inputs.y_target_same_scene_mask)
         else:
             target_same_scene_mask = None #TODO: AVIVSL stopped here
@@ -551,7 +568,7 @@ class TransformerEncoder(object):
                 # with tf.control_dependencies(printops):
                 #     self_attn_mask = self_attn_mask * 1
         ################################################################################################################
-                enc_output, _ = self.encoder_stack[layer_id][
+                enc_output, _, _ = self.encoder_stack[layer_id][
                     'self_attn'].forward(enc_output, None, new_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
@@ -690,6 +707,26 @@ class TransformerDecoder(object):
                 # make sure slicing works (for enc_output too)
 
             # TODO make sure timesteps is not repeated when conditionally predicting
+
+            ############################################### PRINTING #######################################################
+            # printops = []
+            # printops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output],"AVIVSL9: dec_output ", summarize=10000))
+            # printops.append(
+            #     tf.compat.v1.Print([], [timesteps, tf.shape(target_embeddings)], "AVIVSL9: timesteps and target_embeddings ", summarize=10000))
+            # with tf.control_dependencies(printops):
+            #     dec_input = dec_input * 1
+            # ###############################################################################################################
+
+            if self.config.target_same_scene_head_loss:
+                if self.config.target_same_scene_masks_layers == "all_layers":
+                    target_same_scene_mask_layers = list(range(1, self.config.transformer_dec_depth + 1))
+                else:
+                    target_same_scene_mask_layers = ast.literal_eval(self.config.target_same_scene_masks_layers)
+            else:
+                target_same_scene_mask_layers=[]
+
+            attn_softmax_weights_list = [] #TODO: AVIVSL ask Leshem - don't really need to know what layer came from - right? (so list instead of dict is fine, right?)
+
             # Propagate inputs through the encoder stack
             dec_output = dec_input
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -705,16 +742,36 @@ class TransformerDecoder(object):
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask], "AVIVSL22: self_attn_mask", summarize=10000))
                 # with tf.control_dependencies(print_ops):
                 #     dec_output = dec_output * 1
-                dec_output, _ = self.decoder_stack[layer_id][
+
+                # ############################################## PRINTING #######################################################
+                printops = []
+                # printops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output],"AVIVSL9: dec_output ", summarize=10000))
+                with tf.control_dependencies(printops):
+                    dec_output = dec_output * 1
+                # ###############################################################################################################
+
+
+                dec_output, _, attn_softmax_weights = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None,
                                          self_attn_mask, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
+
+                if self.config.target_same_scene_head_loss and layer_id in target_same_scene_mask_layers:
+                    attn_softmax_weights_list.append(attn_softmax_weights)
+
+                # ############################################## PRINTING #######################################################
+                # printops = []
+                # printops.append(tf.compat.v1.Print([], [tf.shape(attn_softmax_weights), attn_softmax_weights],"AVIVSL9: attn_softmax_weights ", summarize=10000))
+                # with tf.control_dependencies(printops):
+                #     dec_output = dec_output * 1
+                # ###############################################################################################################
+
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), dec_output[0,:,-5:]], "part of dec_output "+ str(layer_id), 50, 300))
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(enc_output), enc_output[0,:,-5:]], "part of enc_output "+ str(layer_id), 50, 300))
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output), tf.shape(enc_output), tf.shape(cross_attn_mask)], "dec_output, enc_output, cross_mask cross attention input" + str(layer_id), 50, 100))
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(cross_attn_mask), cross_attn_mask[0,:10],cross_attn_mask[1,:10],cross_attn_mask[-2,:10],cross_attn_mask[-1,:10]], "cross attention" + str(layer_id), 50, 100))
                 # with tf.control_dependencies(print_ops):
-                dec_output, _ = \
+                dec_output, _, _ = \
                     self.decoder_stack[layer_id]['cross_attn'].forward(
                         dec_output, enc_output, cross_attn_mask)
                 # print_ops = []
@@ -722,7 +779,7 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output = self.decoder_stack[
                     layer_id]['ffn'].forward(dec_output)
-            return dec_output
+            return dec_output, attn_softmax_weights_list
 
         def _prepare_targets():
             """ Pre-processes target token ids before they're passed on as input to the decoder
@@ -757,7 +814,7 @@ class TransformerDecoder(object):
             target_embeddings = _prepare_targets()
 
             # Pass encoder context and decoder embeddings through the decoder
-            dec_output = _decode_all(target_embeddings)
+            dec_output, attn_softmax_weights_list = _decode_all(target_embeddings)
             # Project decoder stack outputs and apply the soft-max
             # non-linearity
             # printops = []
@@ -765,7 +822,7 @@ class TransformerDecoder(object):
             #     tf.compat.v1.Print([], [tf.shape(dec_output), dec_output], "dec_output", 300, 50))
             # with tf.control_dependencies(printops):
             full_logits = self.softmax_projection_layer.project(dec_output)
-            return full_logits
+            return full_logits, attn_softmax_weights_list
 
         with tf.compat.v1.variable_scope(self.name):
             # Transpose encoder information in hybrid models
@@ -897,7 +954,7 @@ class TransformerDecoder(object):
                 # # printops.append(
                 # #     tf.compat.v1.Print([], [tf.shape(target_ids), target_ids[-1,:10], target_ids[-1 - timesteps,:10]], "target_ids in", 300, 50))
                 # with tf.control_dependencies(printops):
-                logits = _decoding_function()
+                logits, attn_softmax_weights_list = _decoding_function()
                 if not SQUASH:
                     logging.info("not squashing loss")
                 else:
@@ -945,7 +1002,7 @@ class TransformerDecoder(object):
                     # with tf.control_dependencies(printops):
                     logits = tf.reshape(logits, [batch_size, timesteps, self.config.target_vocab_size])
             else:
-                logits = _decoding_function()
+                logits, attn_softmax_weights_list = _decoding_function()
             # printops = []
             # printops.append(
             #     tf.compat.v1.Print([], [tf.shape(logits), logits[0,:,:10]], "final logits",
@@ -953,7 +1010,7 @@ class TransformerDecoder(object):
             # with tf.control_dependencies(printops):
             #     logits = logits * 1 + 0
 
-        return logits
+        return logits, attn_softmax_weights_list
 
     def combine_attention_rules(self, attention_rules, self_attn_mask):
         #logging.info(f"parents shape {attention_rules[0].shape} mask shape {self_attn_mask}")

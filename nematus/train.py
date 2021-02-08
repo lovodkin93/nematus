@@ -258,7 +258,7 @@ def train(config, sess):
             #     logging.info("AVIVSL10: third sentence is {0}, and its mask is {1}" .format(source3,same_scene_masks[2]))
             # logging.info("AVIVSL13: length of source_sents is {0} and of same_scene_masks is {1}" .format(len(source_sents), len(same_scene_masks)))
             if config.target_graph:
-                if config.target_same_scene_head:
+                if config.target_same_scene_head_loss:
                     target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = list(zip(*target_sents))
                     target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = \
                         list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time), list(target_same_scene_masks)
@@ -275,7 +275,7 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
-                if config.target_same_scene_head:
+                if config.target_same_scene_head_loss:
                     target_sents, target_same_scene_masks = list(zip(*target_sents))
                     target_sents, target_same_scene_masks = list(target_sents), list(target_same_scene_masks)
                 else:

@@ -49,7 +49,7 @@ class ModelInputs(object):
                 shape=(seq_len, seq_len, batch_size),
                 dtype=tf.int32)
 
-        if config.target_same_scene_head:
+        if config.target_same_scene_head_loss:
             self.y_target_same_scene_mask = tf.compat.v1.placeholder(
                 name='y_target_same_scene_mask',
                 shape=(seq_len, seq_len, batch_size),
