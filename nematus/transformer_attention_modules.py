@@ -234,7 +234,7 @@ class MultiHeadAttentionLayer(object):
         # ############################################### PRINTING #######################################################
         # printops = []
         # if isDecoder:
-        #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights],
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[:,0,:,:]],
         #                                    "AVIVSL7: attn_softmax_weights ", summarize=10000))
         # with tf.control_dependencies(printops):
         #     weighted_memories = weighted_memories * 1
@@ -285,9 +285,9 @@ class MultiHeadAttentionLayer(object):
         projected_memories = self.context_projection.forward(weighted_memories)
         ############################################### PRINTS #################################################################
         # print_ops = []
-        # if not isDecoder and self.name=="self_attn_sublayer":
-        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask],
-        #                                         "AVIVSL7: encoder attn_mask:" + self.name,summarize=10000))
+        # if isDecoder and self.name=="self_attn_sublayer":
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(weighted_memories), weighted_memories],
+        #                                         "AVIVSL7: decoder self_attn weighted_memories:" + self.name,summarize=10000))
         # if isDecoder and self.name=="self_attn_sublayer":
         #     print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask],
         #                                         "AVIVSL8: decoder attn_mask:" + self.name,summarize=10000))

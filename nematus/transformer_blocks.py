@@ -94,7 +94,7 @@ class AttentionBlock(object):
         ############################################### PRINTING #######################################################
         # printops = []
         # if isDecoder:
-        #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_softmax_weights), attn_softmax_weights],
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(layer_memories), layer_memories],
         #                                    "AVIVSL8: attn_softmax_weights ", summarize=10000))
         # with tf.control_dependencies(printops):
         #     block_out = block_out * 1

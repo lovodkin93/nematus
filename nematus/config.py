@@ -395,6 +395,13 @@ class ConfigSpecification:
             help='which layers to apply the source same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
 
         group.append(ParameterSpecification(
+            name='target_num_same_scene_head', default=1,
+            visible_arg_names=['--target_num_same_scene_head'],
+            type=int, metavar='INT',
+            help='number of same_scene_heads per layer in target (default: '
+                 '%(default)s)')) #TODO: AVIVSL: added this
+
+        group.append(ParameterSpecification(
             name='target_same_scene_masks_layers', default='all_layers',
             visible_arg_names=['--target_same_scene_masks_layers'],
             type=str,
