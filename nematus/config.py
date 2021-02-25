@@ -388,6 +388,13 @@ class ConfigSpecification:
             action='store_true',
             help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (learnt by adding the softmax values of the decoder layers to the loss function) (default: False)'))
 
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_head_reg_factor', default=0.01,
+            visible_arg_names=['--target_same_scene_head_reg_factor'],
+            type=float, metavar='FLOAT',
+            help='regularization factor of the target same scene head (default: %(default)s)'))
+
         group.append(ParameterSpecification(
             name='source_same_scene_masks_layers', default='all_layers',
             visible_arg_names=['--source_same_scene_masks_layers'],

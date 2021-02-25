@@ -308,6 +308,9 @@ def train(config, sess):
             # logging.info("AVIVSL19: x__mask_in is \n {0} \n and y_mask_in is \n {1} \n.".format(x_mask_in, y_mask_in))
             #logging.info("AVIVSL19: x_in is{0} and x_mask_in is {1}" .format(x_in,x_mask_in))
 
+            # if np.shape(y_in)[0] != np.shape(target_same_scene_mask_in)[0]:
+            #     print(f"gotcha in train: {np.shape(y_in)} {np.shape(target_same_scene_mask_in)} {y_in}") #TODO: AVIVSL delete in the end
+
             if x_in is None:
                 logging.info(
                     'Minibatch with zero sample under length {0}'.format(config.maxlen))
@@ -346,8 +349,8 @@ def train(config, sess):
                 logging.info('{0} Epoch: {1} Update: {2} Loss/words: {3} Words/sec: {4} Sents/sec: {5}'.format(
                     disp_time, progress.eidx, progress.uidx, total_loss / n_words, n_words / duration,
                                                              n_sents / duration))
-                if progress.uidx == 1000:
-                    print("gotcha")
+                # if progress.uidx == 1000:
+                #     print("gotcha")
                 last_time = time.time()
                 total_loss = 0.
                 n_sents = 0
@@ -745,6 +748,9 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
                                                                                                source_same_scene_masks,
                                                                                                target_same_scene_masks,
                                                                                                maxlen=None)
+
+        # if np.shape(y)[0] != np.shape(target_same_scene_mask)[0]:
+        #     print(f"gotcha in validation: {np.shape(y)} {np.shape(target_same_scene_mask)} {y}") #TODO: AVIVSL delete in the end
 
         # # Run the minibatch through the model to get the sentence-level cross entropy values.
         # feeds = {model.inputs.x: x,

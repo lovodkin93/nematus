@@ -127,9 +127,15 @@ class ModelUpdater(object):
                 self._split_and_pad_minibatch_mrt(
                     x, x_mask, y, y_mask, score, start_points, index)
         else:
+
             split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_y_target_same_scene_mask, weights = \
                 self._split_and_pad_minibatch(
                     x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_source_same_scene_mask, y_target_same_scene_mask, start_points)
+
+            ############################################################## PRINT ###############################################################################################################
+            # if (np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]) and (np.shape(y_target_same_scene_mask)[0] == np.shape(y)[0]):  # FIXME: AVIVSL delete
+            #     print(f"gotcha after _split_and_pad_minibatch: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])} and y shape before is: {np.shape(y)}")  # FIXME: AVIVSL delete
+            ####################################################################################################################################################################################
 
         # Scale the weights so that short minibatches (e.g. at the end of
         # maxibatches) contribute less.
@@ -201,11 +207,17 @@ class ModelUpdater(object):
             is the sentence-level or token-level cross entropy, optionally with
             L2 or MAP-L2 regularization.
         """
+
+        # if np.shape(y_target_same_scene_mask)[0] != np.shape(y)[0]: #FIXME: AVIVSL delete
+        #     print(f"gotcha before split_per_gpu: {np.shape(y_target_same_scene_mask)} {np.shape(y)}") #FIXME: AVIVSL delete
+
         split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents, \
             split_x_source_same_scene_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
                                     session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
                                     x_labels_time, x_parents, x_source_same_scene_mask, y_target_same_scene_mask)
 
+        # if np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]: #FIXME: AVIVSL delete
+        #     print(f"gotcha after split_per_gpu: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])}") #FIXME: AVIVSL delete
         if apply_grads:
             # Normalize the weights so that _ModelUpdateGraph can just sum the
             # weighted gradients from each sub-batch (without needing a
@@ -531,6 +543,16 @@ class ModelUpdater(object):
         else:
             split_y_target_same_scene_mask = None
 
+        ############################################################## PRINT ###############################################################################################################
+        # if (np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]) and (np.shape(y_target_same_scene_mask)[0] == np.shape(y)[0]):  # FIXME: AVIVSL delete
+        #     print(f"AVIVSL1: gotcha: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])} and y shape before is: {np.shape(y)}")  # FIXME: AVIVSL delete
+        #     first=True
+        # else:
+        #     first=False
+        ####################################################################################################################################################################################
+
+
+
         if x_parents_time is not None:
             split_x_parents_time = split_array(x_parents_time, start_points)
         else:
@@ -562,8 +584,6 @@ class ModelUpdater(object):
         split_x_mask = trim_arrays(split_x_mask, max_lens)
         if split_x_source_same_scene_mask is not None:
             split_x_source_same_scene_mask = trim_same_scene_masks(split_x_source_same_scene_mask, max_lens)
-        if split_y_target_same_scene_mask is not None:
-            split_y_target_same_scene_mask = trim_same_scene_masks(split_y_target_same_scene_mask, max_lens)
         # split_x_parents_time = [a[..., 0:l, 0:l, :] for a, l in zip(split_x_parents_time, max_lens)] # attention should be trimmed both in the from and to
         # if split_x_edges_time is not None:
         #     # split_x_edges = trim_arrays(split_x_edges, max_lens)
@@ -574,6 +594,18 @@ class ModelUpdater(object):
         max_lens = [int(numpy.max(numpy.sum(m, axis=0))) for m in split_y_mask]  #the maximum length for each such split (y)
         split_y = trim_arrays(split_y, max_lens)
         split_y_mask = trim_arrays(split_y_mask, max_lens)
+        if split_y_target_same_scene_mask is not None:
+            split_y_target_same_scene_mask = trim_same_scene_masks(split_y_target_same_scene_mask, max_lens)
+
+        ############################################################## PRINT ###############################################################################################################
+        # if (np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]) and (np.shape(y_target_same_scene_mask)[0] == np.shape(y)[0]) and not first:  # FIXME: AVIVSL delete
+        #     print(f"AVIVSL2: gotcha: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])} and y shape before is: {np.shape(y)}")  # FIXME: AVIVSL delete
+        #     second=True
+        # else:
+        #     second=False
+        ####################################################################################################################################################################################
+
+
 
         # Compute the weight of each sub-batch by summing the number of
         # source and target tokens. Note that this counts actual tokens
@@ -610,6 +642,12 @@ class ModelUpdater(object):
             # pad(split_x_labels, padding_size)
             pad(split_x_edges_time, padding_size)
             pad(split_x_labels_time, padding_size)
+
+
+        ############################################################## PRINT ###############################################################################################################
+        # if (np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]) and (np.shape(y_target_same_scene_mask)[0] == np.shape(y)[0]) and not first and not second:  # FIXME: AVIVSL delete
+        #     print(f"AVIVSL3: gotcha: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])} and y shape before is: {np.shape(y)}")  # FIXME: AVIVSL delete
+        ####################################################################################################################################################################################
 
         for i in range(padding_size):
             weights.append(0.0)

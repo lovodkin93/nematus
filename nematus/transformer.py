@@ -6,6 +6,7 @@ from sparse_sgcn import GCN
 import logging
 from util import *
 import ast
+from tensorflow.python.ops import math_ops
 
 # ModuleNotFoundError is new in 3.6; older versions will throw SystemError
 if sys.version_info < (3, 6):
@@ -92,10 +93,10 @@ class Transformer(object):
         #     self.bias_labels, \
         #     self.general_edge_mask, \
         #     self.general_bias_mask = self._convert_inputs(self.inputs)
-
         self.training = self.inputs.training
         self.scores = self.inputs.scores
         self.index = self.inputs.index
+
 
         # Build the common parts of the graph.
         with tf.compat.v1.name_scope('{:s}_loss'.format(self.name)):
@@ -113,7 +114,16 @@ class Transformer(object):
             with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
                 logits, supervised_attn_softmax_weights = self.dec.decode_at_train(self.target_ids_in,
                                                   enc_output,
-                                                  cross_attn_mask, self.edges, self.labels, self.parents) #TODO: AVIVSL stopped here
+                                                  cross_attn_mask, self.edges, self.labels, self.parents)
+
+            # ################################################# PRINT ###################################################
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.t_same_scene_mask),
+            #                                          tf.shape(self.target_ids_out)], "AVIVSL14: target_ids_out: ",
+            #                                     summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     logits = logits * 1  # TODO delete
+            # ###########################################################################################################
 
             original_mask_shape = tf.shape(self.target_mask)
             if not SQUASH and self.config.target_graph:
@@ -192,15 +202,48 @@ class Transformer(object):
             # ###########################################################################################################
 
             if self.config.target_same_scene_head_loss:
-                #sent_len = int(tf.shape(self.t_same_scene_mask)[-1])
-                target_gold_attn_softmax_weights = self.get_gold_softmax_weights(self.t_same_scene_mask) #TODO: AVIVSL stopped here - pointwise multiply, then calculate the L2 on the rows, sum them, and add to the masked_loss and accordingly to the other losses
+                target_gold_attn_softmax_weights = self.get_gold_softmax_weights(self.t_same_scene_mask) #FIXME: AVIVSL return to origin in the end
+
+                # ################################################# PRINT ###################################################
+                # print_ops = []
+                # print_ops.append(
+                #     tf.compat.v1.Print([], [tf.shape(supervised_attn_softmax_weights),tf.shape(target_gold_attn_softmax_weights),
+                #                             tf.shape(self.target_ids_out)], "AVIVSL14: shape supervised, shape gold, shape target_ids ", summarize=10000))
+                #if tf.shape(supervised_attn_softmax_weights)[-1] != tf.shape(target_gold_attn_softmax_weights)[-1]:
+                # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.t_same_scene_mask), tf.shape(supervised_attn_softmax_weights)[-1],tf.shape(target_gold_attn_softmax_weights)[-1],
+                #                 tf.shape(self.target_ids_out)], "AVIVSL14: target_ids_out: ", summarize=10000))
+                # with tf.control_dependencies(print_ops):
+                #     sentence_loss = sentence_loss * 1  # TODO delete
+                # ###########################################################################################################
+
+
+                # calculate softmax_weights_loss
+                softmax_weights_pointwise = tf.math.multiply(supervised_attn_softmax_weights, target_gold_attn_softmax_weights) #supervised_attn_softmax_weights
+                softmax_weights_loss = math_ops.reduce_sum(softmax_weights_pointwise, axis=3)
+                softmax_weights_loss = tf.ones_like(softmax_weights_loss) - softmax_weights_loss # 1 minus the loss
+                softmax_weights_loss = tf.math.reduce_sum(math_ops.square(softmax_weights_loss), axis=0) #summing across all the heads that are being supervised
+                softmax_weights_loss = self.config.target_same_scene_head_reg_factor * softmax_weights_loss
+                # add the regularizations to the loss functions
+                masked_loss+=softmax_weights_loss
+                sentence_softmax_weights_loss = tf.reduce_sum(softmax_weights_loss, axis=1)
+                sentence_loss+=sentence_softmax_weights_loss # TODO: AVIVSL: ask Leshem: the regularization to the sentence loss should simply be the sum of the losses of all the words, right?
+                batch_softmax_weights_loss = tf.reduce_sum(sentence_softmax_weights_loss)
+                batch_loss+=batch_softmax_weights_loss # TODO: AVIVSL: ask Leshem: same for batch, right?
 
 
 
             # ################################################# PRINT ###################################################
             # print_ops = []
             # print_ops.append(
-            #     tf.compat.v1.Print([], [tf.shape(target_gold_attn_softmax_weights), target_gold_attn_softmax_weights], "AVIVSL11: target_gold_attn_softmax_weights ", summarize=10000))
+            #     tf.compat.v1.Print([], [tf.shape(target_gold_attn_softmax_weights), target_gold_attn_softmax_weights[1,:,:]], "AVIVSL11: target_gold_attn_softmax_weights ", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(supervised_attn_softmax_weights), supervised_attn_softmax_weights[4,1,:,:]], "AVIVSL12: supervised_attn_softmax_weights ", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(softmax_weights_pointwise), softmax_weights_pointwise[:,1,:,:]], "AVIVSL13: softmax_weights_pointwise ", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(softmax_weights_loss), softmax_weights_loss[1,:]], "AVIVSL14: softmax_weights_loss ", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(masked_loss), masked_loss], "AVIVSL14: masked_loss ", summarize=10000))
             # with tf.control_dependencies(print_ops):
             #     sentence_loss = sentence_loss * 1  # TODO delete
             # ###########################################################################################################
@@ -267,10 +310,11 @@ class Transformer(object):
         ones_tf = tf.ones_like(t_same_scene_mask, dtype=tf.int32)
         triang_tf = tf.linalg.band_part(ones_tf, -1, 0)
         gold_softmax_weights = tf.math.multiply(t_same_scene_mask, triang_tf)
+        gold_softmax_weights = gold_softmax_weights
         sum_per_row =tf.math.reduce_sum(gold_softmax_weights, 2)
         sum_per_row = tf.where(tf.equal(sum_per_row,0), tf.ones_like(sum_per_row), sum_per_row) #replace all sums=0 with sum=1 so when divide by it, we don't have 0/0
         uniform_gold_softmax_weights = gold_softmax_weights / tf.reshape(sum_per_row, (tf.shape(t_same_scene_mask)[0],tf.shape(t_same_scene_mask)[1], -1))
-
+        uniform_gold_softmax_weights = tf.dtypes.cast(uniform_gold_softmax_weights, dtype=tf.float32)
         return uniform_gold_softmax_weights
 
 

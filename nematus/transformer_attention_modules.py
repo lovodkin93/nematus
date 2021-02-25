@@ -226,6 +226,8 @@ class MultiHeadAttentionLayer(object):
 
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)
+        undropped_attn_weights = attn_weights
+
         # Optionally apply dropout:
         if self.dropout_attn > 0.0:
             attn_weights = tf.compat.v1.layers.dropout(attn_weights, rate=self.dropout_attn, training=self.training)
@@ -239,7 +241,7 @@ class MultiHeadAttentionLayer(object):
         # with tf.control_dependencies(printops):
         #     weighted_memories = weighted_memories * 1
         ################################################################################################################
-        return weighted_memories, attn_weights
+        return weighted_memories, undropped_attn_weights
 
     def forward(self, query_context, memory_context, attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends same_scene_masks
         """ Propagates the input information through the attention layer. """
