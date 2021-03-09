@@ -49,6 +49,12 @@ class ModelInputs(object):
                 shape=(seq_len, seq_len, batch_size),
                 dtype=tf.int32)
 
+        if config.source_parent_scaled_head:
+            self.x_source_parent_scaled_mask = tf.compat.v1.placeholder(
+                name='x_source_parent_scaled_mask',
+                shape=(seq_len, seq_len, batch_size),
+                dtype=tf.int32)
+
         if config.target_same_scene_head_loss:
             self.y_target_same_scene_mask = tf.compat.v1.placeholder(
                 name='y_target_same_scene_mask',

@@ -102,7 +102,8 @@ def calc_scores(source_file, target_file, scorer_settings, configs):
                     target_vocab_size=config.target_vocab_size,
                     use_factor=(config.factors > 1),
                     sort_by_length=False,
-                    source_same_scene_mask=config.source_train_same_scene_masks) #TODO: AVIVSL: make sure if needed to send to target_same_scene_mask config.target_validation_same_scene_masks or None
+                    source_same_scene_mask=config.source_train_same_scene_masks,
+                    source_parent_scaled_mask=config.source_train_parent_scaled_masks) #TODO: AVIVSL: make sure if needed to send to target_same_scene_mask config.target_validation_same_scene_masks or None
 
                 ce_vals, _ = train.calc_cross_entropy_per_sentence(
                     sess,

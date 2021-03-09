@@ -86,6 +86,7 @@ def load_data(config):
         target_labels_num=config.target_labels_num,
         splitted_action=config.split_transitions,
         source_same_scene_mask=config.source_train_same_scene_masks,
+        source_parent_scaled_mask=config.source_train_parent_scaled_masks,
         target_same_scene_mask=config.target_train_same_scene_masks
     )
 
@@ -113,6 +114,7 @@ def load_data(config):
             splitted_action=config.split_transitions,
             ignore_empty=True,
             source_same_scene_mask=config.source_valid_same_scene_masks,
+            source_parent_scaled_mask=config.source_valid_parent_scaled_masks,
             target_same_scene_mask=config.target_valid_same_scene_masks
         )
     else:
@@ -280,11 +282,15 @@ def train(config, sess):
                     target_sents, target_same_scene_masks = list(target_sents), list(target_same_scene_masks)
                 else:
                     target_same_scene_masks = None
-            if config.source_same_scene_head:
-                source_sents, source_same_scene_masks = list(zip(*source_sents))
-                source_sents, source_same_scene_masks = list(source_sents), list(source_same_scene_masks)
-            else:
+
+            source_sents, source_same_scene_masks, source_parent_scaled_masks = list(zip(*source_sents))
+            source_sents, source_same_scene_masks, source_parent_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks)
+            if not config.source_same_scene_head:
                 source_same_scene_masks = None
+            if not config.source_parent_scaled_head:
+                source_parent_scaled_masks = None
+
+
             #logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
             if len(source_sents[0][0]) != config.factors:
                 logging.error(
@@ -296,9 +302,9 @@ def train(config, sess):
             # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
             # logging.info("Source sents " + str(source_sents) + " .")
             # logging.info("Target sents " + str(target_sents) + " .")
-            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, source_same_scene_mask_in , target_same_scene_mask_in \
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, source_same_scene_mask_in , source_parent_scaled_mask_in, target_same_scene_mask_in \
                 = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time,
-                                    target_parents_time, config.factors, source_same_scene_masks, target_same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
+                                    target_parents_time, config.factors, source_same_scene_masks, source_parent_scaled_masks, target_same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
             # logging.info("AVIVSL16: factors are {0}".format(config.factors))
             # source_x = ' '.join([num_to_source[0][word[0]] for word in x_in[0]])
             # source_y = ' '.join([num_to_target[word[0]] for word in y_in])
@@ -308,8 +314,6 @@ def train(config, sess):
             # logging.info("AVIVSL19: x__mask_in is \n {0} \n and y_mask_in is \n {1} \n.".format(x_mask_in, y_mask_in))
             #logging.info("AVIVSL19: x_in is{0} and x_mask_in is {1}" .format(x_in,x_mask_in))
 
-            # if np.shape(y_in)[0] != np.shape(target_same_scene_mask_in)[0]:
-            #     print(f"gotcha in train: {np.shape(y_in)} {np.shape(target_same_scene_mask_in)} {y_in}") #TODO: AVIVSL delete in the end
 
             if x_in is None:
                 logging.info(
@@ -321,7 +325,7 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in, y_target_same_scene_mask=target_same_scene_mask_in)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in, x_source_parent_scaled_mask=source_parent_scaled_mask_in, y_target_same_scene_mask=target_same_scene_mask_in)
             #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
@@ -697,11 +701,15 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     logging.info("calc_cross_entropy_per_sentence")
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
-        if text_iterator.source_same_scene_mask_orig:
-            source_sents, source_same_scene_masks = list(zip(*source_sents))
-            source_sents, source_same_scene_masks = list(source_sents), list(source_same_scene_masks)
-        else:
+
+        source_sents, source_same_scene_masks, source_parent_scaled_masks = list(zip(*source_sents))
+        source_sents, source_same_scene_masks, source_parent_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks)
+        if not text_iterator.source_same_scene_mask_orig:
             source_same_scene_masks = None
+        if not text_iterator.source_parent_scaled_mask_orig:
+            source_parent_scaled_masks = None
+
+
         logging.info(f"Source len {len(source_sents)}")
         if not source_sents or not source_sents[0]:
             logging.error(f"Excepted source sents instead got: {source_sents}, target: {target_sents}, seen: {len(ce_vals)}")
@@ -738,7 +746,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             else:
                 target_same_scene_masks = None
 
-        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, target_same_scene_mask = \
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask = \
                                                                              util.prepare_data(source_sents,
                                                                                                target_sents,
                                                                                                target_edges_time,
@@ -746,11 +754,10 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
                                                                                                target_parents_time,
                                                                                                config.factors,
                                                                                                source_same_scene_masks,
+                                                                                               source_parent_scaled_masks,
                                                                                                target_same_scene_masks,
-                                                                                               maxlen=None)
+                                                                                               maxlen=None) # TODO: AVIVSL stopped here
 
-        # if np.shape(y)[0] != np.shape(target_same_scene_mask)[0]:
-        #     print(f"gotcha in validation: {np.shape(y)} {np.shape(target_same_scene_mask)} {y}") #TODO: AVIVSL delete in the end
 
         # # Run the minibatch through the model to get the sentence-level cross entropy values.
         # feeds = {model.inputs.x: x,
