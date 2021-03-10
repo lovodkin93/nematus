@@ -71,7 +71,7 @@ class AttentionBlock(object):
                                          training=training,
                                          name='post_{:s}_sublayer'.format(attn_name))
 
-    def forward(self, inputs, memory_context, attn_mask, layer_memories=None, isDecoder=False):
+    def forward(self, inputs, memory_context, attn_mask, layer_memories=None, isDecoder=False): # make sure everyone calling sends pre_softmax_attn_mask
         """ Propagates input data through the block. """
         if not self.self_attention:
             assert (memory_context is not None), \
@@ -86,10 +86,12 @@ class AttentionBlock(object):
         #     inputs = 1 * inputs
         #############################################################################################
 
+        # if pre_softmax_attn_mask is None:
+        #      pre_softmax_attn_mask=tf.ones_like(attn_mask) #TODO: AVIVSL return in the end
+
         attn_inputs = self.pre_attn.forward(inputs)
         attn_outputs, layer_memories, attn_softmax_weights = self.attn.forward(attn_inputs, memory_context, attn_mask, layer_memories, isDecoder=isDecoder) #goes to MultiHeadAttentionLayer's forward in nematus.transformer_attention_modules
         block_out = self.post_attn.forward(attn_outputs, residual_inputs=inputs)
-
 
         ############################################### PRINTING #######################################################
         # printops = []

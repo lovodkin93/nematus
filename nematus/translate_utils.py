@@ -19,7 +19,7 @@ except (ModuleNotFoundError, ImportError) as e:
 
 
 def translate_batch(session, sampler, x, x_mask, max_translation_len,
-                    normalization_alpha, same_scene_mask): #TODO: AVIVSL make sure everyone calling it passes a mask
+                    normalization_alpha, same_scene_mask, parent_scaled_mask=None): #TODO: AVIVSL make sure everyone calling it passes a parent_scaled mask
     """Translate a batch using a RandomSampler or BeamSearchSampler.
 
     Args:
@@ -57,6 +57,10 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
             feed_dict[model.inputs.x_mask] = x_mask
             if same_scene_mask is not None:
                 feed_dict[model.inputs.x_source_same_scene_mask] = same_scene_mask
+
+            if parent_scaled_mask is not None:
+                feed_dict[model.inputs.x_source_parent_scaled_mask] = parent_scaled_mask
+
             # logging.info(f"x, x_mask in translate {x.shape}, {x_mask.shape}, {x}, {x_mask}")
         feed_dict[model.inputs.training] = False
 
@@ -81,7 +85,7 @@ def translate_batch(session, sampler, x, x_mask, max_translation_len,
     return beams
 
 
-def translate_file(input_file, output_file, same_scene_masks_file, session, sampler, config,
+def translate_file(input_file, output_file, same_scene_masks_file, parent_scaled_masks_file, session, sampler, config,
                    max_translation_len, normalization_alpha, nbest=False,
                    minibatch_size=80, maxibatch_size=20):
     """Translates a source file using a RandomSampler or BeamSearchSampler.
@@ -100,7 +104,7 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
         maxibatch_size: number of minibatches to read and sort, pre-translation.
     """
 
-    def translate_maxibatch(maxibatch, num_to_target, num_prev_translated,same_scene_batch):
+    def translate_maxibatch(maxibatch, num_to_target, num_prev_translated, same_scene_batch, parent_scaled_batch):
         """Translates an individual maxibatch.
 
         Args:
@@ -112,7 +116,7 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
         # Sort the maxibatch by length and split into minibatches.
         try:
             minibatches, idxs = util.read_all_lines(config, maxibatch,
-                                                    minibatch_size, same_scene_batch)
+                                                    minibatch_size, same_scene_batch, parent_scaled_batch)
         except exception.Error as x:
             logging.error(x.msg)
             sys.exit(1)
@@ -121,19 +125,27 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
         # translations and scores) for each sentence.
         beams = []
         for x in minibatches:
+            x, same_scene_mask, parent_scaled_mask = zip(x)
+            x = x[0]
+            same_scene_mask = same_scene_mask[0] if same_scene_batch is not None else None
+            parent_scaled_mask = parent_scaled_mask[0] if parent_scaled_batch is not None else None
 
-            if same_scene_batch is not None:
-                x, same_scene_mask = zip(x)
-                x, same_scene_mask = x[0], same_scene_mask[0]
-            else:
-                same_scene_mask = None
+            ######################### delete? ##########################
+            # if same_scene_batch is not None:
+            #     x, same_scene_mask = zip(x)
+            #     x, same_scene_mask = x[0], same_scene_mask[0]
+            # else:
+            #     same_scene_mask = None
+            ############################################################
+
+
 
             y_dummy = numpy.zeros(shape=(len(x), 1))
             x, x_mask, _, _, _, _, _,same_scene_mask, parent_scaled_mask, _ = util.prepare_data(x, y_dummy, None, None, None, config.factors,
-                                                         source_same_scene_masks=same_scene_mask, target_same_scene_masks=None, maxlen=None) #FIXME: AVIVSL add source_parent_scaled_masks and send on parent_scaled_mask (what prepare_data returns), same as "same_scene_mask"
+                                                         source_same_scene_masks=same_scene_mask, source_parent_scaled_masks=parent_scaled_mask, target_same_scene_masks=None, maxlen=None) #FIXME: AVIVSL add source_parent_scaled_masks and send on parent_scaled_mask (what prepare_data returns), same as "same_scene_mask"
             # logging.info(f"Batch size {x.shape}, minibatch_size {minibatch_size}, maxibatch_size {maxibatch_size}")
             sample = translate_batch(session, sampler, x, x_mask,
-                                     max_translation_len, normalization_alpha, same_scene_mask)
+                                     max_translation_len, normalization_alpha, same_scene_mask, parent_scaled_mask)
             beams.extend(sample)
             num_translated = num_prev_translated + len(beams)
             logging.info('Translated {} sents'.format(num_translated))
@@ -173,25 +185,35 @@ def translate_file(input_file, output_file, same_scene_masks_file, session, samp
     num_translated = 0
     maxibatch = []
     same_scene_batch = [] if same_scene_masks_file is not None else None
+    parent_scaled_batch = [] if parent_scaled_masks_file is not None else None
     while True:
         line = input_file.readline()
         if same_scene_masks_file is not None:
             same_scene_mask_line = same_scene_masks_file.readline()
         else:
             same_scene_mask_line = None
+
+        if parent_scaled_masks_file is not None:
+            parent_scaled_mask_line = parent_scaled_masks_file.readline()
+        else:
+            parent_scaled_mask_line = None
+
         if line == "":
             if len(maxibatch) > 0:
-                translate_maxibatch(maxibatch, num_to_target, num_translated,same_scene_batch)
+                translate_maxibatch(maxibatch, num_to_target, num_translated,same_scene_batch, parent_scaled_batch)
                 num_translated += len(maxibatch)
             break
         maxibatch.append(line)
         if same_scene_masks_file is not None:
             same_scene_batch.append(same_scene_mask_line)
+        if parent_scaled_masks_file is not None:
+            parent_scaled_batch.append(parent_scaled_mask_line)
         if len(maxibatch) == (maxibatch_size * minibatch_size):
-            translate_maxibatch(maxibatch, num_to_target, num_translated,same_scene_batch)
+            translate_maxibatch(maxibatch, num_to_target, num_translated,same_scene_batch, parent_scaled_batch)
             num_translated += len(maxibatch)
             maxibatch = []
-            same_scene_batch = [] if same_scene_masks_file is not None else None #FIXME: AVIVSL added this
+            same_scene_batch = [] if same_scene_masks_file is not None else None
+            parent_scaled_batch = [] if parent_scaled_masks_file is not None else None
 
     duration = time.time() - start_time
     logging.info('Translated {} sents in {} sec. Speed {} sents/sec'.format(

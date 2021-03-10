@@ -368,9 +368,15 @@ def train(config, sess):
                     source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
                 else:
                     source_same_scene_mask_small = None
+
+                if source_parent_scaled_mask_in is not None:
+                    source_parent_scaled_mask_small = source_parent_scaled_mask_in[:, :, :10]
+                else:
+                    source_parent_scaled_mask_small = None
+
                 samples = translate_utils.translate_batch(
                     sess, random_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, 0.0, source_same_scene_mask_small)
+                    config.translation_maxlen, 0.0, source_same_scene_mask_small, source_parent_scaled_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -391,6 +397,12 @@ def train(config, sess):
                     source_same_scene_mask_small = source_same_scene_mask_in[:, :, :10]
                 else:
                     source_same_scene_mask_small = None
+
+                if source_parent_scaled_mask_in is not None:
+                    source_parent_scaled_mask_small = source_parent_scaled_mask_in[:, :, :10]
+                else:
+                    source_parent_scaled_mask_small = None
+
                 if target_same_scene_mask_in is not None:
                     target_same_scene_mask_small = target_same_scene_mask_in[:, :, :10]
                 else:
@@ -398,7 +410,7 @@ def train(config, sess):
 
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small)
+                    config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small, source_parent_scaled_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -560,32 +572,59 @@ def validate_with_script(session, beam_search_sampler):
     out = tempfile.NamedTemporaryFile(mode='w')
 
     #if config.source_valid_same_scene_masks
+
+    same_scene_masks_file = open(config.source_valid_bleu_same_scene_masks, encoding="UTF-8") if config.source_valid_bleu_same_scene_masks is not None else None
+    parent_scaled_masks_file = open(config.source_valid_bleu_parent_scaled_masks, encoding="UTF-8") if config.source_valid_bleu_parent_scaled_masks is not None else None
+
+    with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
+        translate_utils.translate_file(
+            input_file=infile,
+            output_file=out,
+            same_scene_masks_file=same_scene_masks_file,
+            parent_scaled_masks_file=parent_scaled_masks_file,
+            session=session,
+            sampler=beam_search_sampler,
+            config=config,
+            max_translation_len=config.translation_maxlen,
+            normalization_alpha=config.normalization_alpha,
+            nbest=False,
+            minibatch_size=config.valid_batch_size)
+
     if config.source_valid_bleu_same_scene_masks is not None:
-        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile, open(config.source_valid_bleu_same_scene_masks, encoding="UTF-8") as same_scene_masks_file: #TODO: AVIVSL make sure if encoding="UTF-8" in the same_scene_mask does problems
-            translate_utils.translate_file(
-                input_file=infile,
-                output_file=out,
-                same_scene_masks_file=same_scene_masks_file,
-                session=session,
-                sampler=beam_search_sampler,
-                config=config,
-                max_translation_len=config.translation_maxlen,
-                normalization_alpha=config.normalization_alpha,
-                nbest=False,
-                minibatch_size=config.valid_batch_size)
-    else:
-        with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
-            translate_utils.translate_file(
-                input_file=infile,
-                output_file=out,
-                same_scene_masks_file=None,
-                session=session,
-                sampler=beam_search_sampler,
-                config=config,
-                max_translation_len=config.translation_maxlen,
-                normalization_alpha=config.normalization_alpha,
-                nbest=False,
-                minibatch_size=config.valid_batch_size)
+        same_scene_masks_file.close()
+    if config.source_valid_bleu_parent_scaled_masks is not None:
+        parent_scaled_masks_file.close()
+
+    ################################################################################ delete? #############################################################################
+    # if config.source_valid_bleu_same_scene_masks is not None:
+    #     with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile, open(config.source_valid_bleu_same_scene_masks, encoding="UTF-8") as same_scene_masks_file: #TODO: AVIVSL make sure if encoding="UTF-8" in the same_scene_mask does problems
+    #         translate_utils.translate_file(
+    #             input_file=infile,
+    #             output_file=out,
+    #             same_scene_masks_file=same_scene_masks_file,
+    #             session=session,
+    #             sampler=beam_search_sampler,
+    #             config=config,
+    #             max_translation_len=config.translation_maxlen,
+    #             normalization_alpha=config.normalization_alpha,
+    #             nbest=False,
+    #             minibatch_size=config.valid_batch_size)
+    # else:
+    #     with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
+    #         translate_utils.translate_file(
+    #             input_file=infile,
+    #             output_file=out,
+    #             same_scene_masks_file=None,
+    #             session=session,
+    #             sampler=beam_search_sampler,
+    #             config=config,
+    #             max_translation_len=config.translation_maxlen,
+    #             normalization_alpha=config.normalization_alpha,
+    #             nbest=False,
+    #             minibatch_size=config.valid_batch_size)
+    #########################################################################################################################################################################
+
+
     logging.info("about to flush")
     out.flush()
     dev_out_path = os.path.splitext(config.saveto)[0] + "_val.out"
@@ -774,7 +813,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, target_same_scene_mask)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]

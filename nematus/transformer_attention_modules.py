@@ -207,6 +207,7 @@ class MultiHeadAttentionLayer(object):
             # with tf.control_dependencies(print_ops):
             #     attn_logits = attn_logits * 1
             #################################################################################################################
+
             attn_logits += attn_mask
 
             ################################################## PRINTS ########################################################
@@ -243,7 +244,7 @@ class MultiHeadAttentionLayer(object):
         ################################################################################################################
         return weighted_memories, undropped_attn_weights
 
-    def forward(self, query_context, memory_context, attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends same_scene_masks
+    def forward(self, query_context, memory_context, attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends pre_softmax_attn_mask
         """ Propagates the input information through the attention layer. """
         # The context for the query and the referenced memory is identical in case of self-attention
         if memory_context is None:

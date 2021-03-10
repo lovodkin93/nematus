@@ -90,6 +90,10 @@ class TranslationSettings(BaseSettings):
                 '--source_same_scene_mask', type=str,
                 default=None, metavar='PATH',
                 help="source_same_scene_mask file (default: None)")
+            self._parser.add_argument(
+                '--source_parent_scaled_mask', type=str,
+                default=None, metavar='PATH',
+                help="source_parent_scaled_mask file (default: None)")
 
         self._parser.add_argument(
             '-k', '--beam_size', type=int, default=5, metavar='INT',

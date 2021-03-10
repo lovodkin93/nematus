@@ -116,17 +116,24 @@ def main(settings):
         else:
             out = settings.output
 
-        if settings.source_same_scene_mask is not None: #TODO: AVIVSL if running - make sure works
-            same_scene_masks = open(settings.source_same_scene_mask, "r") #TODO: AVIVSL make sure if legit
-            configs[0].source_same_scene_head = True #TODO: AVIVSL probably need to delete?
+        if settings.source_same_scene_mask is not None:
+            same_scene_masks = open(settings.source_same_scene_mask, "r")
+            configs[0].source_same_scene_head = True
         else:
             same_scene_masks = None
+
+        if settings.source_parent_scaled_mask is not None: #TODO: AVIVSL if running - make sure works
+            parent_scaled_masks = open(settings.source_parent_scaled_mask, "r") #TODO: AVIVSL make sure if legit
+            configs[0].source_parent_scaled_head = True #TODO: AVIVSL probably need to delete?
+        else:
+            parent_scaled_masks = None
 
         # Translate the source file.
         translate_utils.translate_file(
             input_file=settings.input,
             output_file=out,
             same_scene_masks_file=same_scene_masks,
+            parent_scaled_masks_file=parent_scaled_masks,
             session=session,
             sampler=sampler,
             config=configs[0],
@@ -137,7 +144,10 @@ def main(settings):
             maxibatch_size=settings.maxibatch_size)
         if settings.output_path is not None:
             out.close()
-        if settings.source_same_scene_mask is not None: #TODO: AVIVSL if running - make sure works
+        if settings.source_same_scene_mask is not None:
             same_scene_masks.close()
+
+        if settings.source_parent_scaled_mask is not None: #TODO: AVIVSL if running - make sure works
+            parent_scaled_masks.close()
 if __name__ == "__main__":
     main(settings)

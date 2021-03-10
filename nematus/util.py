@@ -366,7 +366,7 @@ def load_dictionaries(config):
     return source_to_num, target_to_num, num_to_source, num_to_target
 
 
-def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIVSL make sure everyone calling it sends same_scene_mask
+def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scaled_batch): #TODO: AVIVSL make sure everyone calling it sends same_scene_mask
     source_to_num, _, _, _ = load_dictionaries(config)
 
     if config.source_vocab_sizes != None:
@@ -379,6 +379,7 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIV
 
     lines = []
     same_scene_masks = [] if same_scene_batch is not None else None
+    parent_scaled_masks = [] if parent_scaled_batch is not None else None
     for i,sent in enumerate(sentences):
         line = []
         for w in sent.strip().split():
@@ -395,6 +396,9 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIV
         lines.append(line)
         if same_scene_batch is not None:
             same_scene_masks.append(ast.literal_eval(same_scene_batch[i]))
+
+        if parent_scaled_batch is not None:
+            parent_scaled_masks.append(ast.literal_eval(parent_scaled_batch[i]))
     lines = numpy.array(lines)
     lengths = numpy.array([len(l) for l in lines])
     idxs = lengths.argsort()
@@ -404,16 +408,25 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch): #TODO: AVIV
         same_scene_masks = numpy.array(same_scene_masks)
         same_scene_masks = same_scene_masks[idxs]
 
+    if parent_scaled_batch is not None:
+        parent_scaled_masks = numpy.array(parent_scaled_masks)
+        parent_scaled_masks = parent_scaled_masks[idxs]
+
     # merge into batches
     batches = []
     for i in range(0, len(lines), batch_size):
         batch = lines[i:i + batch_size]
-        if same_scene_batch is not None:
-            same_scene_mask_batch = same_scene_masks[i:i + batch_size]
-            batches.append((batch, same_scene_mask_batch))
-        else:
-            batches.append(batch)
+        same_scene_mask_batch = same_scene_masks[i:i + batch_size] if same_scene_batch is not None else None
+        parent_scaled_mask_batch = parent_scaled_masks[i:i + batch_size] if parent_scaled_batch is not None else None
+        batches.append((batch, same_scene_mask_batch, parent_scaled_mask_batch))
 
+        ######################### delete? ##########################
+        # if same_scene_batch is not None:
+        #     same_scene_mask_batch = same_scene_masks[i:i + batch_size]
+        #     batches.append((batch, same_scene_mask_batch))
+        # else:
+        #     batches.append(batch)
+        ############################################################
     return batches, idxs
 
 if __name__ == '__main__':

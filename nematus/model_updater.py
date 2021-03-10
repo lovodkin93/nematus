@@ -148,9 +148,9 @@ class ModelUpdater(object):
                                      x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
         return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor
 
-    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, y_target_same_scene_mask=None):
+    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, x_source_parent_scaled_mask=None, y_target_same_scene_mask=None):
         return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents,
-                           x_source_same_scene_mask=x_source_same_scene_mask, y_target_same_scene_mask=y_target_same_scene_mask, apply_grads=False)
+                           x_source_same_scene_mask=x_source_same_scene_mask, x_source_parent_scaled_mask=x_source_parent_scaled_mask, y_target_same_scene_mask=y_target_same_scene_mask, apply_grads=False)
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, normalized_weights, scaling_factor = self.split_per_gpu(
         #     session, x, x_mask, y, y_mask, {}, x_edges_time,
         #     x_labels_time)

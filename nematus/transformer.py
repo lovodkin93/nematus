@@ -83,7 +83,8 @@ class Transformer(object):
         self.labels, \
         self.parents,\
         self.s_same_scene_mask, \
-        self.t_same_scene_mask    = self._convert_inputs(self.inputs) #TODO: AVIVSL stopped here #TODO: AVIVSL try to change to s_same_scene_mask (so far called only in transformer.py and transformet_inference.py, but make sure), and when I add the target, add it as t_same_scene_mask
+        self.s_parent_scaled_mask, \
+        self.t_same_scene_mask    = self._convert_inputs(self.inputs) #TODO: AVIVSL stopped here
         # self.source_ids, \
         #     self.source_mask, \
         #     self.target_ids_in, \
@@ -97,6 +98,15 @@ class Transformer(object):
         self.scores = self.inputs.scores
         self.index = self.inputs.index
 
+        # # ################################################# PRINT ###################################################
+        # print_ops = []
+        # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.s_parent_scaled_mask),
+        #                                          self.s_parent_scaled_mask], "AVIVSL14: s_parent_scaled_mask: ",
+        #                                     summarize=10000))
+        # with tf.control_dependencies(print_ops):
+        #     self.source_ids = self.source_ids * 1  # TODO delete
+        # # ###########################################################################################################
+
 
         # Build the common parts of the graph.
         with tf.compat.v1.name_scope('{:s}_loss'.format(self.name)):
@@ -108,7 +118,7 @@ class Transformer(object):
             # Encode source sequences
             with tf.compat.v1.name_scope('{:s}_encode'.format(self.name)):
                 enc_output, cross_attn_mask = self.enc.encode(
-                    self.source_ids, self.source_mask, self.s_same_scene_mask)
+                    self.source_ids, self.source_mask, self.s_same_scene_mask, self.s_parent_scaled_mask)
 
             # Decode into target sequences
             with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
@@ -116,14 +126,14 @@ class Transformer(object):
                                                   enc_output,
                                                   cross_attn_mask, self.edges, self.labels, self.parents)
 
-            # ################################################# PRINT ###################################################
+            # # ################################################# PRINT ###################################################
             # print_ops = []
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.t_same_scene_mask),
-            #                                          tf.shape(self.target_ids_out)], "AVIVSL14: target_ids_out: ",
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self.s_parent_scaled_mask),
+            #                                          self.s_parent_scaled_mask], "AVIVSL14: s_parent_scaled_mask: ",
             #                                     summarize=10000))
             # with tf.control_dependencies(print_ops):
             #     logits = logits * 1  # TODO delete
-            # ###########################################################################################################
+            # # ###########################################################################################################
 
             original_mask_shape = tf.shape(self.target_mask)
             if not SQUASH and self.config.target_graph:
@@ -402,6 +412,11 @@ class Transformer(object):
         else:
             source_same_scene_mask = None
 
+        if self.config.source_parent_scaled_head:
+            source_parent_scaled_mask = tf.transpose(a=inputs.x_source_parent_scaled_mask)
+        else:
+            source_parent_scaled_mask = None
+
         if self.config.target_same_scene_head_loss:
             target_same_scene_mask = tf.transpose(a=inputs.y_target_same_scene_mask)
         else:
@@ -449,7 +464,7 @@ class Transformer(object):
         tmp = tmp[:-1, :]
         target_ids_in = tf.transpose(a=tmp, perm=[1, 0])
         return (source_ids, source_mask, target_ids_in, target_ids_out,
-                target_mask, edges, labels, parents, source_same_scene_mask, target_same_scene_mask)
+                target_mask, edges, labels, parents, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask)
         #return (source_ids, source_mask, source_same_scene_mask, target_ids_in, target_ids_out,
         #        target_mask, edges, labels, parents)
         # return (source_ids, source_mask, target_ids_in, target_ids_out,
@@ -523,11 +538,12 @@ class TransformerEncoder(object):
                 self.encoder_stack[layer_id]['self_attn'] = self_attn_block
                 self.encoder_stack[layer_id]['ffn'] = ffn_block
 
-    def encode(self, source_ids, source_mask, source_same_scene_mask=None):
+    def encode(self, source_ids, source_mask, source_same_scene_mask, source_parent_scaled_mask):
         """ Encodes source-side input tokens into meaningful, contextually-enriched representations. """
 
         def _prepare_source():
             """ Pre-processes inputs to the encoder and generates the corresponding attention masks."""
+
             # Embed
             source_embeddings = self._embed(source_ids)
             # Obtain length and depth of the input tensors
@@ -560,31 +576,53 @@ class TransformerEncoder(object):
                 s_same_scene_mask = inverse_same_scene_mask *  MASK_ATTEN_VAL
             else:
                 s_same_scene_mask = None
+
+            s_parent_scaled_mask = source_parent_scaled_mask
+
+
+            ################################################## print ###################################################
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_ids), source_ids], "AVIVSL3: Source ids:", 50, 100))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_parent_scaled_mask), source_parent_scaled_mask],
+            #                                     "AVIVSL0: source_parent_scaled_mask:", summarize=10000))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(s_parent_scaled_mask), s_parent_scaled_mask],
+            #                                     "AVIVSL0: source_parent_scaled_mask:", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     source_embeddings = source_embeddings * 1
+            ############################################################################################################
+
+
+
             # Apply dropout
             if self.config.transformer_dropout_embeddings > 0:
                 source_embeddings = tf.compat.v1.layers.dropout(source_embeddings,
                                                                 rate=self.config.transformer_dropout_embeddings,
                                                                 training=self.training)
 
+            ################################################## print ##################################################
             # print_ops = []
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_ids), source_ids], "AVIVSL3: Source ids:", 50, 100))
-            # #print_ops.append(
-            # # _, _, source_to_num_dict, _ = load_dictionaries(self.config)
-            # # tf.compat.v1.Print([], [source_to_num_dict[0][id] for id in source_ids], "AVIVSL4: Source words:", 50, 100)) #to do this - put a breakpoint here and do this in evaluate (copy the source_ids printed, make into a list and then)
-            #
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_ids), source_ids], "AVIVSL0: Source ids:",summarize=10000))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_embeddings), source_embeddings], "AVIVSL1: Source embeddings:", summarize=10000))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_mask), source_mask], "AVIVSL2: source_mask:", summarize=10000))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(inverse_mask), inverse_mask], "AVIVSL3: inverse_mask:", summarize=10000))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL4: attn_mask:", summarize=10000))
-            # print_ops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask], "AVIVSL5: self_attn_mask:", summarize=10000))
-            #
-            # if source_same_scene_mask is not None:
-            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(source_same_scene_mask), source_same_scene_mask], "AVIVSL6: source_same_scene_mask:", summarize=10000))
-            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(s_same_scene_mask), s_same_scene_mask], "AVIVSL7: same scene_mask:", summarize=10000))
+            # # #print_ops.append(
+            # # # _, _, source_to_num_dict, _ = load_dictionaries(self.config)
+            # # # tf.compat.v1.Print([], [source_to_num_dict[0][id] for id in source_ids], "AVIVSL4: Source words:", 50, 100)) #to do this - put a breakpoint here and do this in evaluate (copy the source_ids printed, make into a list and then)
+            # #
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_parent_scaled_mask), source_parent_scaled_mask],
+            #                                     "AVIVSL0: source_parent_scaled_mask:", summarize=10000))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(s_parent_scaled_mask), s_parent_scaled_mask],
+            #                                     "AVIVSL1: s_parent_scaled_mask:", summarize=10000))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(source_same_scene_mask), source_same_scene_mask], "AVIVSL0: source_same_scene_mask:",summarize=10000))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(s_same_scene_mask), s_same_scene_mask], "AVIVSL1: s_same_scene_mask:", summarize=10000))
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(inverse_same_scene_mask), inverse_same_scene_mask], "AVIVSL2: inverse_same_scene_mask:", summarize=10000))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(inverse_mask), inverse_mask], "AVIVSL3: inverse_mask:", summarize=10000))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL4: attn_mask:", summarize=10000))
+            # # print_ops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask], "AVIVSL5: self_attn_mask:", summarize=10000))
+            # #
+            # if source_parent_scaled_mask is not None:
+            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(source_parent_scaled_mask), source_parent_scaled_mask], "AVIVSL6: source_parent_scaled_mask:", summarize=10000))
+            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(s_parent_scaled_mask), s_parent_scaled_mask], "AVIVSL7: same s_parent_scaled_mask:", summarize=10000))
             # with tf.control_dependencies(print_ops):
             #     source_embeddings = source_embeddings * 1
-
+            ###########################################################################################################
 
             ################################### PRINT TO SEE THE ORDER OF SENTENCES ####################################
             # print_ops = []
@@ -595,21 +633,25 @@ class TransformerEncoder(object):
 
 
 
-            return source_embeddings, self_attn_mask, cross_attn_mask, s_same_scene_mask
+            return source_embeddings, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask
 
         with tf.compat.v1.variable_scope(self.name):
             # Prepare inputs to the encoder, get attention masks
-            enc_inputs, self_attn_mask, cross_attn_mask, s_same_scene_mask = _prepare_source()
+            enc_inputs, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask = _prepare_source()
 
             if s_same_scene_mask is not None:
-                s_same_scene_mask = tf.expand_dims(s_same_scene_mask, axis=1)  # make another dim for number of heads [batch,#heads,longest sent. in batch len, longest sent. in batch len]
+                s_same_scene_mask = tf.expand_dims(s_same_scene_mask, axis=1) #stopped here # make another dim for number of heads [batch,#heads,longest sent. in batch len, longest sent. in batch len]
 
+            if s_parent_scaled_mask is not None:
+                s_parent_scaled_mask = tf.expand_dims(s_parent_scaled_mask, axis=1)
+
+            ################################################## PRINT ###################################################
             # print_ops = []
-            # if s_same_scene_mask is not None:
-            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(s_same_scene_mask), s_same_scene_mask], "AVIVSL25: same scene_mask:", summarize=10000))
+            # if s_parent_scaled_mask is not None:
+            #     print_ops.append(tf.compat.v1.Print([], [tf.shape(s_parent_scaled_mask), s_parent_scaled_mask], "AVIVSL25: parent_scaled_mask :", summarize=10000))
             #     with tf.control_dependencies(print_ops):
             #         self_attn_mask = self_attn_mask * 1
-
+            ############################################################################################################
 
 
             if self.config.source_same_scene_head:
@@ -619,6 +661,15 @@ class TransformerEncoder(object):
                     same_scene_mask_layers = ast.literal_eval(self.config.source_same_scene_masks_layers)
             else:
                 same_scene_mask_layers=[]
+
+
+            if self.config.source_parent_scaled_head:
+                if self.config.source_parent_scaled_masks_layers == "all_layers":
+                    parent_scaled_mask_layers = list(range(1, self.config.transformer_enc_depth + 1))
+                else:
+                    parent_scaled_mask_layers = ast.literal_eval(self.config.source_parent_scaled_masks_layers)
+            else:
+                parent_scaled_mask_layers=[]
 
             ############################## PRINTING ####################################################
             # printops = []
@@ -637,11 +688,21 @@ class TransformerEncoder(object):
                 if s_same_scene_mask is not None and layer_id in same_scene_mask_layers:
                     attention_rules.append(s_same_scene_mask)
 
+                pre_softmax_attention_rules = []
+                if s_parent_scaled_mask is not None and layer_id in parent_scaled_mask_layers:
+                    for i in list(range(self.config.source_num_parent_scaled_head)):
+                        pre_softmax_attention_rules.append(s_parent_scaled_mask)
+
 
                 if attention_rules:
                     new_self_attn_mask = self.combine_attention_rules(attention_rules, self_attn_mask)
                 else:
                     new_self_attn_mask = self_attn_mask
+
+                if pre_softmax_attention_rules:
+                    new_pre_softmax_self_attn_mask = self.combine_pre_softmax_attention_rules(pre_softmax_attention_rules, len(attention_rules))
+                else:
+                    new_pre_softmax_self_attn_mask = tf.ones_like(self_attn_mask) #TODO: AVIVSL: stopped here
 
         ############################################### PRINTING #######################################################
                 # printops = []
@@ -649,9 +710,9 @@ class TransformerEncoder(object):
                 #     #printops.append(tf.compat.v1.Print([], [tf.shape(attention_rules[1]), attention_rules[1]], "AVIVSL23: other masks:", summarize=10000))
                 #     printops.append(tf.compat.v1.Print([], [layer_id, tf.shape(new_self_attn_mask), new_self_attn_mask[0,:,:,:]], "AVIVSL23: res_mask_1:", summarize=10000))
                 # printops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask), self_attn_mask],"AVIVSL23: self_attn_mask ", summarize=10000))
-                # # #printops.append(tf.compat.v1.Print([], [tf.shape(new_self_attn_mask), new_self_attn_mask[2,0,:,:]], "AVIVSL23: new_self_attn_mask ", summarize=10000))
+                # printops.append(tf.compat.v1.Print([], [layer_id, tf.shape(new_self_attn_mask), new_self_attn_mask], "AVIVSL23: new_self_attn_mask ", summarize=10000))
                 # with tf.control_dependencies(printops):
-                #     self_attn_mask = self_attn_mask * 1
+                #     enc_output = enc_output * 1
         ################################################################################################################
                 enc_output, _, _ = self.encoder_stack[layer_id][
                     'self_attn'].forward(enc_output, None, new_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
@@ -673,6 +734,14 @@ class TransformerEncoder(object):
             return res_attn_mask
         else:
             return None
+
+    def combine_pre_softmax_attention_rules(self, pre_softmax_attention_rules, post_softmax_num_rules):
+        curr_attention_rules = [tf.ones_like(pre_softmax_attention_rules[0]) for _ in range(post_softmax_num_rules)] + \
+                               pre_softmax_attention_rules + [tf.ones_like(pre_softmax_attention_rules[0]) for _ in
+                                                              range(self.config.transformer_num_heads - len(
+                                                                  pre_softmax_attention_rules) - post_softmax_num_rules)]
+        res_attn_mask = tf.concat(curr_attention_rules, axis=1)
+        return res_attn_mask
 
 
 class TransformerDecoder(object):
@@ -812,6 +881,7 @@ class TransformerDecoder(object):
 
             attn_softmax_weights_list = [] #TODO: AVIVSL ask Leshem - don't really need to know what layer came from - right? (so list instead of dict is fine, right?)
 
+
             # Propagate inputs through the encoder stack
             dec_output = dec_input
             for layer_id in range(1, self.config.transformer_dec_depth + 1):
@@ -834,7 +904,6 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(printops):
                 #     dec_output = dec_output * 1
                 # ###############################################################################################################
-
 
                 dec_output, _, attn_softmax_weights = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None,
