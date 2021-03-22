@@ -127,7 +127,7 @@ class MultiHeadAttentionLayer(object):
         merged_inputs = tf.reshape(split_inputs, split_inputs_dims[:-2] + [self.num_heads * split_inputs_depth])
         return merged_inputs
 
-    def _dot_product_attn(self, queries, keys, values, attn_mask, scaling_on, isDecoder): #TODO: AVIVSL: delete the isDecoder in the end
+    def _dot_product_attn(self, queries, keys, values, attn_mask, pre_softmax_attn_mask, scaling_on, isDecoder): #TODO: AVIVSL: delete the isDecoder in the end
         """ Defines the dot-product attention function; see Vaswani et al.(2017), Eq.(1). """
         # query/ key/ value have shape = [batch_size, time_steps, num_heads, num_features]
         # Tile keys and values tensors to match the number of decoding beams; ignored if already done by fusion module
@@ -187,6 +187,7 @@ class MultiHeadAttentionLayer(object):
             attn_mask = tf.cond(pred=tf.greater(num_beams, 1),
                                 true_fn=lambda: tf.tile(attn_mask, [num_beams, 1, 1, 1]),
                                 false_fn=lambda: attn_mask)
+
             ################################################## PRINTS ########################################################
             # print_ops = []
             # enc_dec = "decoder" if isDecoder else "encoder"
@@ -225,6 +226,51 @@ class MultiHeadAttentionLayer(object):
 
 
 
+        if pre_softmax_attn_mask is not None:
+
+            ################################################## PRINTS ######################################################
+            # print_ops = []
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(pre_softmax_attn_mask), pre_softmax_attn_mask[:,0,:,:]],
+            #                            "AVIVSL7 pre_softmax_attn_mask[:,0,:,:]: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(pre_softmax_attn_mask), pre_softmax_attn_mask[:,2,:,:]],
+            #                            "AVIVSL7 pre_softmax_attn_mask[:,2,:,:]: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(pre_softmax_attn_mask), pre_softmax_attn_mask[:,3,:,:]],
+            #                            "AVIVSL7 pre_softmax_attn_mask[:,3,:,:]: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,0,:,:]],
+            #                            "AVIVSL8 attn_logits[:,0,:,:] before: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,2,:,:]],
+            #                            "AVIVSL8 attn_logits[:,2,:,:] before: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,3,:,:]],
+            #                            "AVIVSL8 attn_logits[:,3,:,:] before: ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     attn_logits = attn_logits * 1
+            ################################################################################################################
+
+            pre_softmax_attn_mask = tf.dtypes.cast(pre_softmax_attn_mask, attn_logits.dtype)
+            attn_logits *= pre_softmax_attn_mask
+
+            ################################################## PRINTS ######################################################
+            # print_ops = []
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,0,:,:]],
+            #                            "AVIVSL9 attn_logits[:,0,:,:] after: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,2,:,:]],
+            #                            "AVIVSL9 attn_logits[:,2,:,:] after: ", summarize=10000))
+            # print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[:,3,:,:]],
+            #                            "AVIVSL9 attn_logits[:,3,:,:] after: ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     attn_logits = attn_logits * 1
+            ################################################################################################################
+
+
         # Calculate attention weights
         attn_weights = tf.nn.softmax(attn_logits)
         undropped_attn_weights = attn_weights
@@ -244,7 +290,7 @@ class MultiHeadAttentionLayer(object):
         ################################################################################################################
         return weighted_memories, undropped_attn_weights
 
-    def forward(self, query_context, memory_context, attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends pre_softmax_attn_mask
+    def forward(self, query_context, memory_context, attn_mask, pre_softmax_attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends pre_softmax_attn_mask
         """ Propagates the input information through the attention layer. """
         # The context for the query and the referenced memory is identical in case of self-attention
         if memory_context is None:
@@ -280,7 +326,7 @@ class MultiHeadAttentionLayer(object):
         split_keys = self._split_among_heads(keys)
         split_values = self._split_among_heads(values)
         # Apply attention function
-        split_weighted_memories, attn_softmax_weights = self._dot_product_attn(split_queries, split_keys, split_values, attn_mask,
+        split_weighted_memories, attn_softmax_weights = self._dot_product_attn(split_queries, split_keys, split_values, attn_mask, pre_softmax_attn_mask,
                                                          scaling_on=True, isDecoder=isDecoder)
         # Merge head output
         weighted_memories = self._merge_from_heads(split_weighted_memories)

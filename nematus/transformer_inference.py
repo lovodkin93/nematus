@@ -206,10 +206,10 @@ class ModelAdapter:
                         layer_memories = memories[mem_key]
                     layer_output, memories[mem_key], _ = \
                         layer['self_attn'].forward(
-                            layer_output, None, self_attn_mask, layer_memories)
+                            layer_output, None, self_attn_mask, None, layer_memories, isDecoder=True)
                     layer_output, _, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
-                        encoder_output.cross_attn_mask)
+                        encoder_output.cross_attn_mask, None)
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.

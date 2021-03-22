@@ -715,7 +715,7 @@ class TransformerEncoder(object):
                 #     enc_output = enc_output * 1
         ################################################################################################################
                 enc_output, _, _ = self.encoder_stack[layer_id][
-                    'self_attn'].forward(enc_output, None, new_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
+                    'self_attn'].forward(enc_output, None, new_self_attn_mask, new_pre_softmax_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
 
@@ -907,7 +907,7 @@ class TransformerDecoder(object):
 
                 dec_output, _, attn_softmax_weights = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None,
-                                         self_attn_mask, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
+                                         self_attn_mask, None, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
 
                 if self.config.target_same_scene_head_loss and layer_id in target_same_scene_mask_layers:
                     for i in list(range(self.config.target_num_same_scene_head)):
@@ -930,7 +930,7 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output, _, _ = \
                     self.decoder_stack[layer_id]['cross_attn'].forward(
-                        dec_output, enc_output, cross_attn_mask)
+                        dec_output, enc_output, cross_attn_mask, None)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 # with tf.control_dependencies(print_ops):
