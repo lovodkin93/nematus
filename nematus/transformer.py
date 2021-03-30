@@ -688,10 +688,10 @@ class TransformerEncoder(object):
                 if s_same_scene_mask is not None and layer_id in same_scene_mask_layers:
                     attention_rules.append(s_same_scene_mask)
 
-                pre_softmax_attention_rules = []
+                post_softmax_scaled_attention_rules = []
                 if s_parent_scaled_mask is not None and layer_id in parent_scaled_mask_layers:
                     for i in list(range(self.config.source_num_parent_scaled_head)):
-                        pre_softmax_attention_rules.append(s_parent_scaled_mask)
+                        post_softmax_scaled_attention_rules.append(s_parent_scaled_mask)
 
 
                 if attention_rules:
@@ -699,10 +699,10 @@ class TransformerEncoder(object):
                 else:
                     new_self_attn_mask = self_attn_mask
 
-                if pre_softmax_attention_rules:
-                    new_pre_softmax_self_attn_mask = self.combine_pre_softmax_attention_rules(pre_softmax_attention_rules, len(attention_rules))
+                if post_softmax_scaled_attention_rules:
+                    new_post_softmax_scaled_self_attn_mask = self.combine_post_softmax_scaled_attention_rules(post_softmax_scaled_attention_rules, len(attention_rules))
                 else:
-                    new_pre_softmax_self_attn_mask = tf.ones_like(self_attn_mask) #TODO: AVIVSL: stopped here
+                    new_post_softmax_scaled_self_attn_mask = tf.ones_like(self_attn_mask) #TODO: AVIVSL: stopped here
 
         ############################################### PRINTING #######################################################
                 # printops = []
@@ -715,7 +715,7 @@ class TransformerEncoder(object):
                 #     enc_output = enc_output * 1
         ################################################################################################################
                 enc_output, _, _ = self.encoder_stack[layer_id][
-                    'self_attn'].forward(enc_output, None, new_self_attn_mask, new_pre_softmax_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
+                    'self_attn'].forward(enc_output, None, new_self_attn_mask, new_post_softmax_scaled_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
 
@@ -735,11 +735,11 @@ class TransformerEncoder(object):
         else:
             return None
 
-    def combine_pre_softmax_attention_rules(self, pre_softmax_attention_rules, post_softmax_num_rules):
-        curr_attention_rules = [tf.ones_like(pre_softmax_attention_rules[0]) for _ in range(post_softmax_num_rules)] + \
-                               pre_softmax_attention_rules + [tf.ones_like(pre_softmax_attention_rules[0]) for _ in
+    def combine_post_softmax_scaled_attention_rules(self, post_softmax_scaled_attention_rules, post_softmax_num_binary_rules):
+        curr_attention_rules = [tf.ones_like(post_softmax_scaled_attention_rules[0]) for _ in range(post_softmax_num_binary_rules)] + \
+                               post_softmax_scaled_attention_rules + [tf.ones_like(post_softmax_scaled_attention_rules[0]) for _ in
                                                               range(self.config.transformer_num_heads - len(
-                                                                  pre_softmax_attention_rules) - post_softmax_num_rules)]
+                                                                  post_softmax_scaled_attention_rules) - post_softmax_num_binary_rules)]
         res_attn_mask = tf.concat(curr_attention_rules, axis=1)
         return res_attn_mask
 
