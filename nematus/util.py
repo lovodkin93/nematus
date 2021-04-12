@@ -75,7 +75,7 @@ def reset_dict_indexes(d):
     return {i: d[key] for i, key in enumerate(sorted(d.keys()))}
 
 
-def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, source_same_scene_masks, source_parent_scaled_masks=None, target_same_scene_masks=None, maxlen=None): #FIXME: AVIVSL make sure everyone sends source_parent_scaled_masks
+def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_time, n_factors, source_same_scene_masks, source_parent_scaled_masks=None, source_UD_distance_scaled_masks=None, target_same_scene_masks=None, maxlen=None): #FIXME: AVIVSL make sure everyone sends source_parent_scaled_masks and source_UD_distance_scaled_masks
     # x: a list of sentences
     lengths_x = [len(s) for s in seqs_x]
     lengths_y = [len(s) for s in seqs_y]
@@ -104,6 +104,7 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         new_lengths_y = []
         new_source_same_scene_masks = []
         new_source_parent_scaled_masks = []
+        new_source_UD_distance_scaled_masks = []
         new_target_same_scene_masks = []
         kept = []
         for i, (l_x, s_x, l_y, s_y) in enumerate(zip(lengths_x, seqs_x, lengths_y, seqs_y)):
@@ -116,6 +117,8 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
                     new_source_same_scene_masks.append(source_same_scene_masks[i])
                 if source_parent_scaled_masks is not None:
                     new_source_parent_scaled_masks.append(source_parent_scaled_masks[i])
+                if source_UD_distance_scaled_masks is not None:
+                    new_source_UD_distance_scaled_masks.append(source_UD_distance_scaled_masks[i])
                 if target_same_scene_masks is not None:
                     new_target_same_scene_masks.append(target_same_scene_masks[i])
                 kept.append(i)
@@ -125,6 +128,7 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         seqs_y = new_seqs_y
         source_same_scene_masks = new_source_same_scene_masks if source_same_scene_masks is not None else None
         source_parent_scaled_masks = new_source_parent_scaled_masks if source_parent_scaled_masks is not None else None
+        source_UD_distance_scaled_masks = new_source_UD_distance_scaled_masks if source_UD_distance_scaled_masks is not None else None
         target_same_scene_masks = new_target_same_scene_masks if target_same_scene_masks is not None else None
         if seq_parents_time is not None:
             seq_parents_time = seq_parents_time[..., kept]
@@ -143,6 +147,7 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
     y_mask = numpy.zeros((maxlen_y, n_samples)).astype('float32')
     sss_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if source_same_scene_masks is not None else None # source same scene mask
     sps_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if source_parent_scaled_masks is not None else None # source parent scaled mask
+    suds_mask = numpy.zeros((maxlen_x, maxlen_x, n_samples)).astype('float32') if source_UD_distance_scaled_masks is not None else None # source UD_distance scaled mask
     tss_mask = numpy.zeros((maxlen_y, maxlen_y, n_samples)).astype('float32') if target_same_scene_masks is not None else None # target same scene mask
 
     for idx, [s_x, s_y] in enumerate(zip(seqs_x, seqs_y)):
@@ -164,12 +169,15 @@ def prepare_data(seqs_x, seqs_y, seq_edges_time, seq_labels_time, seq_parents_ti
         if source_parent_scaled_masks is not None:
             sps_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*source_parent_scaled_masks[idx]))
             sps_mask[lengths_x[idx], lengths_x[idx], idx] = 1
+        if source_UD_distance_scaled_masks is not None:
+            suds_mask[:lengths_x[idx], :lengths_x[idx], idx] = list(zip(*source_UD_distance_scaled_masks[idx]))
+            suds_mask[lengths_x[idx], lengths_x[idx], idx] = 1
 
         if target_same_scene_masks is not None:
             tss_mask[:lengths_y[idx], :lengths_y[idx], idx] = list(zip(*target_same_scene_masks[idx]))
             tss_mask[lengths_y[idx], lengths_y[idx], idx] = 1  # (AVIVSL) letting the EOS signal, which embeds all the sentence, point to itself
 
-    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, sss_mask, sps_mask, tss_mask
+    return x, x_mask, y, y_mask, target_edges_time, target_labels_time, seq_parents_time, sss_mask, sps_mask, suds_mask, tss_mask
     # return x, x_mask, y, y_mask, target_edges, target_labels, target_edges_time, target_labels_time
 
 
@@ -366,7 +374,7 @@ def load_dictionaries(config):
     return source_to_num, target_to_num, num_to_source, num_to_target
 
 
-def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scaled_batch): #TODO: AVIVSL make sure everyone calling it sends same_scene_mask
+def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scaled_batch, UD_distance_scaled_batch): #TODO: AVIVSL make sure everyone who's calling it sends UD_distance_scaled_batch
     source_to_num, _, _, _ = load_dictionaries(config)
 
     if config.source_vocab_sizes != None:
@@ -380,6 +388,7 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scale
     lines = []
     same_scene_masks = [] if same_scene_batch is not None else None
     parent_scaled_masks = [] if parent_scaled_batch is not None else None
+    UD_distance_scaled_masks = [] if UD_distance_scaled_batch is not None else None
     for i,sent in enumerate(sentences):
         line = []
         for w in sent.strip().split():
@@ -399,6 +408,8 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scale
 
         if parent_scaled_batch is not None:
             parent_scaled_masks.append(ast.literal_eval(parent_scaled_batch[i]))
+        if UD_distance_scaled_batch is not None:
+            UD_distance_scaled_masks.append(ast.literal_eval(UD_distance_scaled_batch[i]))
     lines = numpy.array(lines)
     lengths = numpy.array([len(l) for l in lines])
     idxs = lengths.argsort()
@@ -411,6 +422,9 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scale
     if parent_scaled_batch is not None:
         parent_scaled_masks = numpy.array(parent_scaled_masks)
         parent_scaled_masks = parent_scaled_masks[idxs]
+    if UD_distance_scaled_batch is not None:
+        UD_distance_scaled_masks = numpy.array(UD_distance_scaled_masks)
+        UD_distance_scaled_masks = UD_distance_scaled_masks[idxs]
 
     # merge into batches
     batches = []
@@ -418,7 +432,8 @@ def read_all_lines(config, sentences, batch_size, same_scene_batch, parent_scale
         batch = lines[i:i + batch_size]
         same_scene_mask_batch = same_scene_masks[i:i + batch_size] if same_scene_batch is not None else None
         parent_scaled_mask_batch = parent_scaled_masks[i:i + batch_size] if parent_scaled_batch is not None else None
-        batches.append((batch, same_scene_mask_batch, parent_scaled_mask_batch))
+        UD_distance_scaled_mask_batch = UD_distance_scaled_masks[i:i + batch_size] if UD_distance_scaled_batch is not None else None
+        batches.append((batch, same_scene_mask_batch, parent_scaled_mask_batch, UD_distance_scaled_mask_batch))
 
         ######################### delete? ##########################
         # if same_scene_batch is not None:

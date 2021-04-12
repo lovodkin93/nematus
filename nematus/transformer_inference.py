@@ -69,7 +69,7 @@ class ModelAdapter:
     def encode(self):
         with tf.compat.v1.name_scope(self._scope):
             enc_output, cross_attn_mask = self._model.enc.encode(
-                self._model.source_ids, self._model.source_mask, self._model.s_same_scene_mask, self._model.s_parent_scaled_mask)
+                self._model.source_ids, self._model.source_mask, self._model.s_same_scene_mask, self._model.s_parent_scaled_mask, self._model.s_UD_distance_scaled_mask)
             ################################################ PRINTS #################################################
             # print_ops = []
             # print_ops.append(tf.compat.v1.Print([], [tf.shape(self._model.s_same_scene_mask), self._model.s_same_scene_mask], "AVIVSL30: s_same_scene_mask:", summarize=10000))
@@ -206,10 +206,10 @@ class ModelAdapter:
                         layer_memories = memories[mem_key]
                     layer_output, memories[mem_key], _ = \
                         layer['self_attn'].forward(
-                            layer_output, None, self_attn_mask, None, layer_memories, isDecoder=True)
+                            layer_output, None, self_attn_mask, None, None, layer_memories, isDecoder=True)
                     layer_output, _, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
-                        encoder_output.cross_attn_mask, None)
+                        encoder_output.cross_attn_mask, None, None)
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.

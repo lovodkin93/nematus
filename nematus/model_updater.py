@@ -79,7 +79,7 @@ class ModelUpdater(object):
         raise NotImplementedError
 
     def split_per_gpu(self, session, x, x_mask, y, y_mask, num_to_target, x_edges_time=None,
-                      x_labels_time=None, x_parents_time=None, x_source_same_scene_mask=None,x_source_parent_scaled_mask=None, y_target_same_scene_mask=None):
+                      x_labels_time=None, x_parents_time=None, x_source_same_scene_mask=None,x_source_parent_scaled_mask=None, x_source_UD_distance_scaled_mask=None, y_target_same_scene_mask=None):
 
         # Split the minibatch into sub-batches. The number of sub-batches is
         # determined based on either the per-device size limit, if set, or on
@@ -128,9 +128,9 @@ class ModelUpdater(object):
                     x, x_mask, y, y_mask, score, start_points, index)
         else:
 
-            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_y_target_same_scene_mask, weights = \
+            split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_x_source_UD_distance_scaled_mask, split_y_target_same_scene_mask, weights = \
                 self._split_and_pad_minibatch(
-                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_source_same_scene_mask, x_source_parent_scaled_mask, y_target_same_scene_mask, start_points)
+                    x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_source_same_scene_mask, x_source_parent_scaled_mask, x_source_UD_distance_scaled_mask, y_target_same_scene_mask, start_points)
 
             ############################################################## PRINT ###############################################################################################################
             # if (np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]) and (np.shape(y_target_same_scene_mask)[0] == np.shape(y)[0]):  # FIXME: AVIVSL delete
@@ -146,11 +146,11 @@ class ModelUpdater(object):
             # Actual batch size / Max batch size, in tokens
             scaling_factor = (
                                      x_mask.shape[0] * x_mask.shape[1]) / self._config.token_batch_size
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_x_source_UD_distance_scaled_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor
 
-    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, x_source_parent_scaled_mask=None, y_target_same_scene_mask=None):
+    def loss_per_sentence(self, session, x, x_mask, y, y_mask, x_edges_time=None, x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, x_source_parent_scaled_mask=None, x_source_UD_distance_scaled_mask=None, y_target_same_scene_mask=None):
         return self.update(session, x, x_mask, y, y_mask, {}, False, x_edges_time, x_labels_time, x_parents=x_parents,
-                           x_source_same_scene_mask=x_source_same_scene_mask, x_source_parent_scaled_mask=x_source_parent_scaled_mask, y_target_same_scene_mask=y_target_same_scene_mask, apply_grads=False)
+                           x_source_same_scene_mask=x_source_same_scene_mask, x_source_parent_scaled_mask=x_source_parent_scaled_mask, x_source_UD_distance_scaled_mask=x_source_UD_distance_scaled_mask, y_target_same_scene_mask=y_target_same_scene_mask, apply_grads=False)
         # split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, normalized_weights, scaling_factor = self.split_per_gpu(
         #     session, x, x_mask, y, y_mask, {}, x_edges_time,
         #     x_labels_time)
@@ -191,7 +191,7 @@ class ModelUpdater(object):
         #     session.run([self.model.loss_per_sentence], feed_dict=feed_dict, options=run_options)
 
     def update(self, session, x, x_mask, y, y_mask, num_to_target, write_summary, x_edges_time=None,
-               x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, x_source_parent_scaled_mask=None, y_target_same_scene_mask=None, apply_grads=True): #TODO: AVIVSL: make sure everyone who is calling it sends the x_source_parent_scaled_mask
+               x_labels_time=None, x_parents=None, x_source_same_scene_mask=None, x_source_parent_scaled_mask=None, x_source_UD_distance_scaled_mask=None, y_target_same_scene_mask=None, apply_grads=True): #TODO: AVIVSL: make sure everyone who is calling it sends the x_source_parent_scaled_mask and x_source_UD_distance_scaled_mask
         """Updates the model for a single minibatch.
 
         Args:
@@ -212,9 +212,9 @@ class ModelUpdater(object):
         #     print(f"gotcha before split_per_gpu: {np.shape(y_target_same_scene_mask)} {np.shape(y)}") #FIXME: AVIVSL delete
 
         split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents, \
-            split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
+            split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_x_source_UD_distance_scaled_mask, split_y_target_same_scene_mask, weights, split_score, split_index, scaling_factor = self.split_per_gpu(
                                     session, x, x_mask, y, y_mask, num_to_target, x_edges_time,
-                                    x_labels_time, x_parents, x_source_same_scene_mask, x_source_parent_scaled_mask, y_target_same_scene_mask)
+                                    x_labels_time, x_parents, x_source_same_scene_mask, x_source_parent_scaled_mask, x_source_UD_distance_scaled_mask, y_target_same_scene_mask)
 
         # if np.shape(split_y_target_same_scene_mask[0])[0] != np.shape(split_y[0])[0]: #FIXME: AVIVSL delete
         #     print(f"gotcha after split_per_gpu: {np.shape(split_y_target_same_scene_mask[0])} {np.shape(split_y[0])}") #FIXME: AVIVSL delete
@@ -256,6 +256,8 @@ class ModelUpdater(object):
                     feed_dict[self._replicas[j].inputs.x_source_same_scene_mask] = split_x_source_same_scene_mask[i + j]
                 if self._config.source_parent_scaled_head:
                     feed_dict[self._replicas[j].inputs.x_source_parent_scaled_mask] = split_x_source_parent_scaled_mask[i + j]
+                if self._config.source_UD_distance_scaled_head:
+                    feed_dict[self._replicas[j].inputs.x_source_UD_distance_scaled_mask] = split_x_source_UD_distance_scaled_mask[i + j]
                 if self._config.target_same_scene_head_loss:
                     feed_dict[self._replicas[j].inputs.y_target_same_scene_mask] = split_y_target_same_scene_mask[i + j]
                 if self._config.target_graph:
@@ -505,7 +507,7 @@ class ModelUpdater(object):
         return start_points
 
     def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, x_source_same_scene_mask,
-                                 x_source_parent_scaled_mask, y_target_same_scene_mask, start_points):
+                                 x_source_parent_scaled_mask, x_source_UD_distance_scaled_mask, y_target_same_scene_mask, start_points):
 
         # def _split_and_pad_minibatch(self, x, x_mask, y, y_mask, x_edges,
         # x_labels, x_edges_time, x_labels_time, start_points):
@@ -544,6 +546,11 @@ class ModelUpdater(object):
             split_x_source_parent_scaled_mask = split_array(x_source_parent_scaled_mask, start_points)
         else:
             split_x_source_parent_scaled_mask = None
+
+        if x_source_UD_distance_scaled_mask is not None:
+            split_x_source_UD_distance_scaled_mask = split_array(x_source_UD_distance_scaled_mask, start_points)
+        else:
+            split_x_source_UD_distance_scaled_mask = None
 
 
         if y_target_same_scene_mask is not None:
@@ -594,6 +601,8 @@ class ModelUpdater(object):
             split_x_source_same_scene_mask = trim_same_scene_masks(split_x_source_same_scene_mask, max_lens)
         if split_x_source_parent_scaled_mask is not None:
             split_x_source_parent_scaled_mask = trim_same_scene_masks(split_x_source_parent_scaled_mask, max_lens)
+        if split_x_source_UD_distance_scaled_mask is not None:
+            split_x_source_UD_distance_scaled_mask = trim_same_scene_masks(split_x_source_UD_distance_scaled_mask, max_lens)
         # split_x_parents_time = [a[..., 0:l, 0:l, :] for a, l in zip(split_x_parents_time, max_lens)] # attention should be trimmed both in the from and to
         # if split_x_edges_time is not None:
         #     # split_x_edges = trim_arrays(split_x_edges, max_lens)
@@ -645,6 +654,8 @@ class ModelUpdater(object):
             pad(split_x_source_same_scene_mask, padding_size)
         if split_x_source_parent_scaled_mask is not None:
             pad(split_x_source_parent_scaled_mask, padding_size)
+        if split_x_source_UD_distance_scaled_mask is not None:
+            pad(split_x_source_UD_distance_scaled_mask, padding_size)
         if split_y_target_same_scene_mask is not None:
             pad(split_y_target_same_scene_mask, padding_size)
         if split_x_parents_time is not None:
@@ -664,7 +675,7 @@ class ModelUpdater(object):
         for i in range(padding_size):
             weights.append(0.0)
 
-        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask, split_y_target_same_scene_mask, weights
+        return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask, split_x_source_parent_scaled_mask,split_x_source_UD_distance_scaled_mask, split_y_target_same_scene_mask, weights
         #return split_x, split_x_mask, split_y, split_y_mask, split_x_edges_time, split_x_labels_time, split_x_parents_time, split_x_source_same_scene_mask , weights
         # return split_x, split_x_mask, split_y, split_y_mask, split_x_edges,
         # split_x_labels, split_x_edges_time, split_x_labels_time, weights

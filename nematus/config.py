@@ -395,6 +395,20 @@ class ConfigSpecification:
             help='number of parent_scaled_heads per layer in source (default: '
                  '%(default)s)'))
 
+        group.append(ParameterSpecification(
+            name='source_UD_distance_scaled_head', default=False,
+            visible_arg_names=['--source_UD_distance_scaled_head'],
+            action='store_true',
+            help='True if system uses one head with UD_distance_scaled mask (default: False)'))
+
+        group.append(ParameterSpecification(
+            name='source_num_UD_distance_scaled_head', default=1,
+            visible_arg_names=['--source_num_UD_distance_scaled_head'],
+            type=int, metavar='INT',
+            help='number of UD_distance_scaled_heads per layer in source (default: '
+                 '%(default)s)'))
+
+
 
         group.append(ParameterSpecification(
             name='target_same_scene_head_loss', default=False,
@@ -420,6 +434,24 @@ class ConfigSpecification:
             visible_arg_names=['--source_parent_scaled_masks_layers'],
             type=str,
             help='which layers to apply the source parent_scaled_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='source_UD_distance_scaled_masks_layers', default='all_layers',
+            visible_arg_names=['--source_UD_distance_scaled_masks_layers'],
+            type=str,
+            help='which layers to apply the source UD_distance_scaled_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='source_parent_scaled_masks_when', default='pre_softmax',
+            visible_arg_names=['--source_parent_scaled_masks_when'],
+            type=str,
+            help='whether to apply the parent_scaled mask before softmax (pre_softmax) or post softmax (post_softmax)'))
+
+        group.append(ParameterSpecification(
+            name='source_UD_distance_scaled_masks_when', default='pre_softmax',
+            visible_arg_names=['--source_UD_distance_scaled_masks_when'],
+            type=str,
+            help='whether to apply the UD_distance_scaled mask before softmax (pre_softmax) or post softmax (post_softmax)'))
 
         group.append(ParameterSpecification(
             name='target_num_same_scene_head', default=1,
@@ -458,6 +490,18 @@ class ConfigSpecification:
             visible_arg_names=['--source_valid_parent_scaled_masks'],
             type=str, metavar='PATH',
             help='parent scaled mask for the source (validation set)'))
+
+        group.append(ParameterSpecification(
+            name='source_train_UD_distance_scaled_masks', default=None,
+            visible_arg_names=['--source_train_UD_distance_scaled_masks'],
+            type=str, metavar='PATH',
+            help='UD_distance_scaled mask for the source (train set)'))
+
+        group.append(ParameterSpecification(
+            name='source_valid_UD_distance_scaled_masks', default=None,
+            visible_arg_names=['--source_valid_UD_distance_scaled_masks'],
+            type=str, metavar='PATH',
+            help='UD_distance_scaled mask for the source (validation set)'))
 
         group.append(ParameterSpecification(
             name='target_train_same_scene_masks', default=None,
@@ -928,6 +972,13 @@ class ConfigSpecification:
             derivation_func=_derive_source_valid_bleu_parent_scaled_masks,
             type=str, metavar='PATH',
             help='parent_scaled masks (of the source) for external evaluation bleu (default: %(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='source_valid_bleu_UD_distance_scaled_masks', default=None,
+            visible_arg_names=['--source_valid_bleu_UD_distance_scaled_masks'],
+            derivation_func=_derive_source_valid_bleu_UD_distance_scaled_masks,
+            type=str, metavar='PATH',
+            help='UD_distance_scaled masks (of the source) for external evaluation bleu (default: %(default)s)'))
 
         group.append(ParameterSpecification(
             name='target_valid_bleu_same_scene_masks', default=None,
@@ -1438,6 +1489,10 @@ def _check_config_consistency(spec, config, set_by_user):
         msg ='--source_parent_scaled_head requires both --source_valid_parent_scaled_masks and --source_train_parent_scaled_masks'
         error_messages.append(msg)
 
+    if config.source_UD_distance_scaled_head and (not config.source_valid_UD_distance_scaled_masks or not config.source_train_UD_distance_scaled_masks):
+        msg ='--source_UD_distance_scaled_head requires both --source_valid_UD_distance_scaled_masks and --source_train_UD_distance_scaled_masks'
+        error_messages.append(msg)
+
     if config.target_same_scene_head_loss and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
         msg ='--target_same_scene_head_loss requires --target_train_same_scene_masks and --target_valid_same_scene_masks'
         error_messages.append(msg)
@@ -1450,6 +1505,11 @@ def _check_config_consistency(spec, config, set_by_user):
     if ((config.source_valid_bleu_parent_scaled_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
         ((config.source_valid_bleu_parent_scaled_masks is not None)  and (config.valid_bleu_source_dataset is None)):
         msg ='It is needed either both or neither of --source_valid_bleu_parent_scaled_masks and --valid_bleu_source_dataset flags'
+        error_messages.append(msg)
+
+    if ((config.source_valid_bleu_UD_distance_scaled_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \
+        ((config.source_valid_bleu_UD_distance_scaled_masks is not None)  and (config.valid_bleu_source_dataset is None)):
+        msg ='It is needed either both or neither of --source_valid_bleu_UD_distance_scaled_masks and --valid_bleu_source_dataset flags'
         error_messages.append(msg)
 
 
@@ -1659,6 +1719,14 @@ def _derive_source_valid_bleu_parent_scaled_masks(config, meta_config):
         return config.source_valid_bleu_parent_scaled_masks
     else:
         return config.source_valid_parent_scaled_masks
+
+# if 'source_valid_bleu_UD_distance_scaled_masks' is not declared, then set it same
+# as 'source_valid_UD_distance_scaled_masks'
+def _derive_source_valid_bleu_UD_distance_scaled_masks(config, meta_config):
+    if config.source_valid_bleu_UD_distance_scaled_masks is not None:
+        return config.source_valid_bleu_UD_distance_scaled_masks
+    else:
+        return config.source_valid_UD_distance_scaled_masks
 
 
 

@@ -90,13 +90,15 @@ class TextIterator:
                  ignore_empty=False,
                  source_same_scene_mask=None,
                  source_parent_scaled_mask=None,
-                 target_same_scene_mask=None): #TODO: AVIVSL make sure everyone sends source_parent_scaled_mask or None
+                 source_UD_distance_scaled_mask=None,
+                 target_same_scene_mask=None): #TODO: AVIVSL make sure everyone sends source_parent_scaled_mask or None and UD_distance_scaled mask or None
         self.preprocess_script = preprocess_script
         self.source_orig = source
         self.target_orig = target
         self.ignore_empty = ignore_empty
         self.source_same_scene_mask_orig=source_same_scene_mask
         self.source_parent_scaled_mask_orig = source_parent_scaled_mask
+        self.source_UD_distance_scaled_mask_orig = source_UD_distance_scaled_mask
         self.target_same_scene_mask_orig=target_same_scene_mask
         if self.preprocess_script:
             logging.info("Executing external preprocessing script...")
@@ -113,6 +115,10 @@ class TextIterator:
                 self.source_parent_scaled_mask = FileWrapper(source_parent_scaled_mask)
             else:
                 self.source_parent_scaled_mask = None
+            if source_UD_distance_scaled_mask:
+                self.source_UD_distance_scaled_mask = FileWrapper(source_UD_distance_scaled_mask)
+            else:
+                self.source_UD_distance_scaled_mask = None
 
             if target_same_scene_mask:
                 self.target_same_scene_mask = FileWrapper(target_same_scene_mask)
@@ -126,6 +132,8 @@ class TextIterator:
                     self.source_same_scene_mask.shuffle_lines(r)
                 if source_parent_scaled_mask:
                     self.source_parent_scaled_mask.shuffle_lines(r)
+                if source_UD_distance_scaled_mask:
+                    self.source_UD_distance_scaled_mask.shuffle_lines(r)
                 if target_same_scene_mask:
                     self.target_same_scene_mask.shuffle_lines(r)
         elif shuffle_each_epoch:
@@ -134,10 +142,11 @@ class TextIterator:
             self.target_orig = target
             self.source_same_scene_mask_orig = source_same_scene_mask
             self.source_parent_scaled_mask_orig = source_parent_scaled_mask
+            self.source_UD_distance_scaled_mask_orig = source_UD_distance_scaled_mask
             self.target_same_scene_mask_orig = target_same_scene_mask
 
-            self.source, self.target, self.source_same_scene_mask, self.source_parent_scaled_mask, self.target_same_scene_mask = shuffle.jointly_shuffle_files(
-                    [self.source_orig, self.target_orig, self.source_same_scene_mask_orig, self.source_parent_scaled_mask_orig, self.target_same_scene_mask_orig], temporary=True)
+            self.source, self.target, self.source_same_scene_mask, self.source_parent_scaled_mask, self.source_UD_distance_scaled_mask, self.target_same_scene_mask = shuffle.jointly_shuffle_files(
+                    [self.source_orig, self.target_orig, self.source_same_scene_mask_orig, self.source_parent_scaled_mask_orig,self.source_UD_distance_scaled_mask_orig, self.target_same_scene_mask_orig], temporary=True)
             #logging.info("AVIVSL12: source is {0} and target is {1} and masks is {2}".format(self.source, self.target, self.source_same_scene_mask))
         else:
             self.source = fopen(source, 'r')
@@ -150,11 +159,15 @@ class TextIterator:
                 self.source_parent_scaled_mask = fopen(source_parent_scaled_mask, 'r')
             else:
                 self.source_parent_scaled_mask = None
+            if source_UD_distance_scaled_mask:
+                self.source_UD_distance_scaled_mask = fopen(source_UD_distance_scaled_mask, 'r')
+            else:
+                self.source_UD_distance_scaled_mask = None
 
             if target_same_scene_mask:
                 self.target_same_scene_mask = fopen(target_same_scene_mask, 'r')
             else:
-                self.target_same_scene_mask = None #TODO: AVIVSL:stopped here
+                self.target_same_scene_mask = None
         self.source_dicts = []
         for source_dict in source_dicts:
             self.source_dicts.append(load_dict(source_dict, model_type))
@@ -213,6 +226,7 @@ class TextIterator:
         self.target_buffer = []
         self.source_same_scene_mask_buffer = []
         self.source_parent_scaled_mask_buffer = []
+        self.source_UD_distance_scaled_mask_buffer = []
         self.target_same_scene_mask_buffer = []
         self.k = batch_size * maxibatch_size
 
@@ -234,12 +248,14 @@ class TextIterator:
                 self.source, self.target = FileWrapper(self.source_orig), FileWrapper(self.target_orig)
                 self.source_same_scene_mask = FileWrapper(self.source_same_scene_mask_orig) if self.source_same_scene_mask_orig else None
                 self.source_parent_scaled_mask = FileWrapper(self.source_parent_scaled_mask_orig) if self.source_parent_scaled_mask_orig else None
+                self.source_UD_distance_scaled_mask = FileWrapper(self.source_UD_distance_scaled_mask_orig) if self.source_UD_distance_scaled_mask_orig else None
                 self.target_same_scene_mask = FileWrapper(self.target_same_scene_mask_orig) if self.target_same_scene_mask_orig else None
             else:
                 self.source = fopen(self.source_orig, 'r')
                 self.target = fopen(self.target_orig, 'r')
                 self.source_same_scene_mask = fopen(self.source_same_scene_mask_orig, 'r') if self.source_same_scene_mask_orig else None
                 self.source_parent_scaled_mask = fopen(self.source_parent_scaled_mask_orig, 'r') if self.source_parent_scaled_mask_orig else None
+                self.source_UD_distance_scaled_mask = fopen(self.source_UD_distance_scaled_mask_orig, 'r') if self.source_UD_distance_scaled_mask_orig else None
                 self.target_same_scene_mask = fopen(self.target_same_scene_mask_orig, 'r') if self.target_same_scene_mask_orig else None
         if self.shuffle:
             if self.keep_data_in_memory:
@@ -250,11 +266,13 @@ class TextIterator:
                     self.source_same_scene_mask.shuffle_lines(r)
                 if self.source_parent_scaled_mask:
                     self.source_parent_scaled_mask.shuffle_lines(r)
+                if self.source_UD_distance_scaled_mask:
+                    self.source_UD_distance_scaled_mask.shuffle_lines(r)
                 if self.target_same_scene_mask:
                     self.target_same_scene_mask.shuffle_lines(r)
             else:
-                self.source, self.target, self.source_same_scene_mask, self.source_parent_scaled_mask, self.target_same_scene_mask = shuffle.jointly_shuffle_files(
-                        [self.source_orig, self.target_orig, self.source_same_scene_mask_orig, self.source_parent_scaled_mask_orig, self.target_same_scene_mask_orig], temporary=True)
+                self.source, self.target, self.source_same_scene_mask, self.source_parent_scaled_mask, self.source_UD_distance_scaled_mask, self.target_same_scene_mask = shuffle.jointly_shuffle_files(
+                        [self.source_orig, self.target_orig, self.source_same_scene_mask_orig, self.source_parent_scaled_mask_orig, self.source_UD_distance_scaled_mask_orig, self.target_same_scene_mask_orig], temporary=True)
         else:
             self.source.seek(0)
             self.target.seek(0)
@@ -262,6 +280,8 @@ class TextIterator:
                 self.source_same_scene_mask.seek(0)
             if self.source_parent_scaled_mask:
                 self.source_parent_scaled_mask.seek(0)
+            if self.source_UD_distance_scaled_mask:
+                self.source_UD_distance_scaled_mask.seek(0)
             if self.target_same_scene_mask:
                 self.target_same_scene_mask.seek(0)
 
@@ -288,6 +308,7 @@ class TextIterator:
                 tt = self.target.readline().split()
                 sssm = self.source_same_scene_mask.readline() if self.source_same_scene_mask_orig else None #source same_scene_mask #stopped here
                 spsm = self.source_parent_scaled_mask.readline() if self.source_parent_scaled_mask_orig else None #source parent_scaled_mask
+                sudsm = self.source_UD_distance_scaled_mask.readline() if self.source_UD_distance_scaled_mask_orig else None #source UD_distance_scaled_mask
                 tssm = self.target_same_scene_mask.readline() if self.target_same_scene_mask_orig else None #target same_scene_mask
                 if self.skip_empty and (len(ss) == 0 or len(tt) == 0):
                     continue
@@ -304,6 +325,8 @@ class TextIterator:
                             self.source_same_scene_mask_buffer.append(ast.literal_eval(sssm)) # ast.literal_eval translates a string representing a list of lists into a list of lists
                     if self.source_parent_scaled_mask_orig:
                             self.source_parent_scaled_mask_buffer.append(ast.literal_eval(spsm))
+                    if self.source_UD_distance_scaled_mask_orig:
+                            self.source_UD_distance_scaled_mask_buffer.append(ast.literal_eval(sudsm))
                     if self.target_same_scene_mask_orig:
                            self.target_same_scene_mask_buffer.append(ast.literal_eval(tssm)) # ast.literal_eval translates a string representing a list of lists into a list of lists
                 if len(self.source_buffer) == self.k:
@@ -324,11 +347,13 @@ class TextIterator:
                 _tbuf = [self.target_buffer[i] for i in tidx]
                 _sssmbuf = [self.source_same_scene_mask_buffer[i] for i in tidx] if self.source_same_scene_mask_orig else None
                 _spsmbuf = [self.source_parent_scaled_mask_buffer[i] for i in tidx] if self.source_parent_scaled_mask_orig else None
+                _sudsmbuf = [self.source_UD_distance_scaled_mask_buffer[i] for i in tidx] if self.source_UD_distance_scaled_mask_orig else None
                 _tssmbuf = [self.target_same_scene_mask_buffer[i] for i in tidx] if self.target_same_scene_mask_orig else None
                 self.source_buffer = _sbuf
                 self.target_buffer = _tbuf
                 self.source_same_scene_mask_buffer = _sssmbuf
                 self.source_parent_scaled_mask_buffer = _spsmbuf
+                self.source_UD_distance_scaled_mask_buffer = _sudsmbuf
                 self.target_same_scene_mask_buffer = _tssmbuf
             else:
                 self.source_buffer.reverse()
@@ -337,6 +362,8 @@ class TextIterator:
                     self.source_same_scene_mask_buffer.reverse()
                 if self.source_parent_scaled_mask_orig:
                     self.source_parent_scaled_mask_buffer.reverse()
+                if self.source_UD_distance_scaled_mask_orig:
+                    self.source_UD_distance_scaled_mask_buffer.reverse()
                 if self.target_same_scene_mask_orig:
                     self.target_same_scene_mask_buffer.reverse()
 
@@ -366,21 +393,9 @@ class TextIterator:
                 ss_tuple = (ss_indices,)
                 sssm = self.source_same_scene_mask_buffer.pop() if self.source_same_scene_mask_orig else None
                 spsm = self.source_parent_scaled_mask_buffer.pop() if self.source_parent_scaled_mask_orig else None
-                ss_tuple = ss_tuple + (sssm,) + (spsm,)
+                sudsm = self.source_UD_distance_scaled_mask_buffer.pop() if self.source_UD_distance_scaled_mask_orig else None
+                ss_tuple = ss_tuple + (sssm,) + (spsm,) + (sudsm,)
                 source.append(ss_tuple)
-
-                # if self.source_same_scene_mask_orig or self.source_parent_scaled_mask_orig:
-                #     ss_tuple = (ss_indices,) #turn ss_indices into a tuple
-                #     sssm = self.source_same_scene_mask_buffer.pop() if self.source_same_scene_mask_orig else None
-                #     spsm = self.source_parent_scaled_mask_buffer.pop() if self.source_parent_scaled_mask_orig else None
-                #     ss_tuple = ss_tuple + (sssm,) + (spsm,)
-                #     source.append(ss_tuple)
-                # # if self.source_same_scene_mask_orig: #TODO: AVIVSL stopped here
-                # #     sssm = self.source_same_scene_mask_buffer.pop()
-                # #     source.append((ss_indices, sssm))
-                # else:
-                #     sssm, spsm = None, None
-                #     source.append(ss_indices)
 
                 # read from source file and map to words index
                 tt = self.target_buffer.pop()
@@ -432,6 +447,8 @@ class TextIterator:
                             self.source_same_scene_mask_buffer.append(sssm)
                         if self.source_parent_scaled_mask_orig:
                             self.source_parent_scaled_mask_buffer.append(spsm)
+                        if self.source_UD_distance_scaled_mask_orig:
+                            self.source_UD_distance_scaled_mask_buffer.append(sudsm)
                         if self.target_same_scene_mask_orig:
                             # same_scene_mask.pop()
                             self.target_same_scene_mask_buffer.append(tssm)

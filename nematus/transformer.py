@@ -84,6 +84,7 @@ class Transformer(object):
         self.parents,\
         self.s_same_scene_mask, \
         self.s_parent_scaled_mask, \
+        self.s_UD_distance_scaled_mask, \
         self.t_same_scene_mask    = self._convert_inputs(self.inputs) #TODO: AVIVSL stopped here
         # self.source_ids, \
         #     self.source_mask, \
@@ -97,6 +98,19 @@ class Transformer(object):
         self.training = self.inputs.training
         self.scores = self.inputs.scores
         self.index = self.inputs.index
+
+        ################################################## PRINTS ########################################################
+        # print_ops = []
+        # if self.s_parent_scaled_mask is not None:
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(self.s_parent_scaled_mask)],
+        #                            "AVIVSL7:pre_softmax_scaled_attn_mask shape", summarize=10000))
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [self.s_parent_scaled_mask],
+        #                            "AVIVSL7:s_UD_distance_scaled_mask", summarize=10000))
+        #     with tf.control_dependencies(print_ops):
+        #         self.s_parent_scaled_mask = self.s_parent_scaled_mask * 1
+        #################################################################################################################
 
         # # ################################################# PRINT ###################################################
         # print_ops = []
@@ -118,7 +132,7 @@ class Transformer(object):
             # Encode source sequences
             with tf.compat.v1.name_scope('{:s}_encode'.format(self.name)):
                 enc_output, cross_attn_mask = self.enc.encode(
-                    self.source_ids, self.source_mask, self.s_same_scene_mask, self.s_parent_scaled_mask)
+                    self.source_ids, self.source_mask, self.s_same_scene_mask, self.s_parent_scaled_mask, self.s_UD_distance_scaled_mask)
 
             # Decode into target sequences
             with tf.compat.v1.name_scope('{:s}_decode'.format(self.name)):
@@ -417,6 +431,11 @@ class Transformer(object):
         else:
             source_parent_scaled_mask = None
 
+        if self.config.source_UD_distance_scaled_head:
+            source_UD_distance_scaled_mask = tf.transpose(a=inputs.x_source_UD_distance_scaled_mask)
+        else:
+            source_UD_distance_scaled_mask = None
+
         if self.config.target_same_scene_head_loss:
             target_same_scene_mask = tf.transpose(a=inputs.y_target_same_scene_mask)
         else:
@@ -464,7 +483,7 @@ class Transformer(object):
         tmp = tmp[:-1, :]
         target_ids_in = tf.transpose(a=tmp, perm=[1, 0])
         return (source_ids, source_mask, target_ids_in, target_ids_out,
-                target_mask, edges, labels, parents, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask)
+                target_mask, edges, labels, parents, source_same_scene_mask, source_parent_scaled_mask, source_UD_distance_scaled_mask, target_same_scene_mask)
         #return (source_ids, source_mask, source_same_scene_mask, target_ids_in, target_ids_out,
         #        target_mask, edges, labels, parents)
         # return (source_ids, source_mask, target_ids_in, target_ids_out,
@@ -538,7 +557,7 @@ class TransformerEncoder(object):
                 self.encoder_stack[layer_id]['self_attn'] = self_attn_block
                 self.encoder_stack[layer_id]['ffn'] = ffn_block
 
-    def encode(self, source_ids, source_mask, source_same_scene_mask, source_parent_scaled_mask):
+    def encode(self, source_ids, source_mask, source_same_scene_mask, source_parent_scaled_mask, source_UD_distance_scaled_mask):
         """ Encodes source-side input tokens into meaningful, contextually-enriched representations. """
 
         def _prepare_source():
@@ -578,6 +597,7 @@ class TransformerEncoder(object):
                 s_same_scene_mask = None
 
             s_parent_scaled_mask = source_parent_scaled_mask
+            s_UD_distance_scaled_mask = source_UD_distance_scaled_mask
 
 
             ################################################## print ###################################################
@@ -633,17 +653,20 @@ class TransformerEncoder(object):
 
 
 
-            return source_embeddings, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask
+            return source_embeddings, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask, s_UD_distance_scaled_mask
 
         with tf.compat.v1.variable_scope(self.name):
             # Prepare inputs to the encoder, get attention masks
-            enc_inputs, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask = _prepare_source()
+            enc_inputs, self_attn_mask, cross_attn_mask, s_same_scene_mask, s_parent_scaled_mask, s_UD_distance_scaled_mask = _prepare_source()
 
             if s_same_scene_mask is not None:
                 s_same_scene_mask = tf.expand_dims(s_same_scene_mask, axis=1) #stopped here # make another dim for number of heads [batch,#heads,longest sent. in batch len, longest sent. in batch len]
 
             if s_parent_scaled_mask is not None:
                 s_parent_scaled_mask = tf.expand_dims(s_parent_scaled_mask, axis=1)
+
+            if s_UD_distance_scaled_mask is not None:
+                s_UD_distance_scaled_mask = tf.expand_dims(s_UD_distance_scaled_mask, axis=1)
 
             ################################################## PRINT ###################################################
             # print_ops = []
@@ -671,6 +694,14 @@ class TransformerEncoder(object):
             else:
                 parent_scaled_mask_layers=[]
 
+            if self.config.source_UD_distance_scaled_head:
+                if self.config.source_UD_distance_scaled_masks_layers == "all_layers":
+                    UD_distance_scaled_mask_layers = list(range(1, self.config.transformer_enc_depth + 1))
+                else:
+                    UD_distance_scaled_mask_layers = ast.literal_eval(self.config.source_UD_distance_scaled_masks_layers)
+            else:
+                UD_distance_scaled_mask_layers=[]
+
             ############################## PRINTING ####################################################
             # printops = []
             # printops.append(
@@ -688,10 +719,21 @@ class TransformerEncoder(object):
                 if s_same_scene_mask is not None and layer_id in same_scene_mask_layers:
                     attention_rules.append(s_same_scene_mask)
 
+                pre_softmax_scaled_attention_rules = []
                 post_softmax_scaled_attention_rules = []
                 if s_parent_scaled_mask is not None and layer_id in parent_scaled_mask_layers:
                     for i in list(range(self.config.source_num_parent_scaled_head)):
-                        post_softmax_scaled_attention_rules.append(s_parent_scaled_mask)
+                        if self.config.source_parent_scaled_masks_when == 'pre_softmax':
+                            pre_softmax_scaled_attention_rules.append(s_parent_scaled_mask)
+                        else:
+                            post_softmax_scaled_attention_rules.append(s_parent_scaled_mask)
+
+                if s_UD_distance_scaled_mask is not None and layer_id in UD_distance_scaled_mask_layers:
+                    for i in list(range(self.config.source_num_UD_distance_scaled_head)):
+                        if self.config.source_UD_distance_scaled_masks_when == 'pre_softmax':
+                            pre_softmax_scaled_attention_rules.append(s_UD_distance_scaled_mask)
+                        else:
+                            post_softmax_scaled_attention_rules.append(s_UD_distance_scaled_mask)
 
 
                 if attention_rules:
@@ -699,10 +741,16 @@ class TransformerEncoder(object):
                 else:
                     new_self_attn_mask = self_attn_mask
 
-                if post_softmax_scaled_attention_rules:
-                    new_post_softmax_scaled_self_attn_mask = self.combine_post_softmax_scaled_attention_rules(post_softmax_scaled_attention_rules, len(attention_rules))
+
+                if pre_softmax_scaled_attention_rules:
+                    new_pre_softmax_scaled_self_attn_mask = self.combine_pre_softmax_scaled_attention_rules(pre_softmax_scaled_attention_rules, len(attention_rules))
                 else:
-                    new_post_softmax_scaled_self_attn_mask = tf.ones_like(self_attn_mask) #TODO: AVIVSL: stopped here
+                    new_pre_softmax_scaled_self_attn_mask = tf.ones_like(self_attn_mask)
+
+                if post_softmax_scaled_attention_rules:
+                    new_post_softmax_scaled_self_attn_mask = self.combine_post_softmax_scaled_attention_rules(post_softmax_scaled_attention_rules, len(attention_rules), len(pre_softmax_scaled_attention_rules))
+                else:
+                    new_post_softmax_scaled_self_attn_mask = tf.ones_like(self_attn_mask)
 
         ############################################### PRINTING #######################################################
                 # printops = []
@@ -715,7 +763,7 @@ class TransformerEncoder(object):
                 #     enc_output = enc_output * 1
         ################################################################################################################
                 enc_output, _, _ = self.encoder_stack[layer_id][
-                    'self_attn'].forward(enc_output, None, new_self_attn_mask, new_post_softmax_scaled_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
+                    'self_attn'].forward(enc_output, None, new_self_attn_mask, new_pre_softmax_scaled_self_attn_mask,new_post_softmax_scaled_self_attn_mask, isDecoder=False) #goes to AttentionBlock's forward in nematus.trasformer_blocks
                 enc_output = self.encoder_stack[
                     layer_id]['ffn'].forward(enc_output)
 
@@ -735,11 +783,19 @@ class TransformerEncoder(object):
         else:
             return None
 
-    def combine_post_softmax_scaled_attention_rules(self, post_softmax_scaled_attention_rules, post_softmax_num_binary_rules):
-        curr_attention_rules = [tf.ones_like(post_softmax_scaled_attention_rules[0]) for _ in range(post_softmax_num_binary_rules)] + \
+    def combine_pre_softmax_scaled_attention_rules(self, pre_softmax_scaled_attention_rules, post_softmax_num_binary_rules):
+        curr_attention_rules = [tf.ones_like(pre_softmax_scaled_attention_rules[0]) for _ in range(post_softmax_num_binary_rules)] + \
+                               pre_softmax_scaled_attention_rules + [tf.ones_like(pre_softmax_scaled_attention_rules[0]) for _ in
+                                                              range(self.config.transformer_num_heads - len(
+                                                                  pre_softmax_scaled_attention_rules) - post_softmax_num_binary_rules)]
+        res_attn_mask = tf.concat(curr_attention_rules, axis=1)
+        return res_attn_mask
+
+    def combine_post_softmax_scaled_attention_rules(self, post_softmax_scaled_attention_rules, post_softmax_num_binary_rules, pre_softmax_num_scaled_rules):
+        curr_attention_rules = [tf.ones_like(post_softmax_scaled_attention_rules[0]) for _ in range(post_softmax_num_binary_rules + pre_softmax_num_scaled_rules)] + \
                                post_softmax_scaled_attention_rules + [tf.ones_like(post_softmax_scaled_attention_rules[0]) for _ in
                                                               range(self.config.transformer_num_heads - len(
-                                                                  post_softmax_scaled_attention_rules) - post_softmax_num_binary_rules)]
+                                                                  post_softmax_scaled_attention_rules) - (post_softmax_num_binary_rules + pre_softmax_num_scaled_rules))]
         res_attn_mask = tf.concat(curr_attention_rules, axis=1)
         return res_attn_mask
 
@@ -907,7 +963,7 @@ class TransformerDecoder(object):
 
                 dec_output, _, attn_softmax_weights = self.decoder_stack[layer_id][
                     'self_attn'].forward(dec_output, None,
-                                         self_attn_mask, None, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
+                                         self_attn_mask, None, None, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
 
                 if self.config.target_same_scene_head_loss and layer_id in target_same_scene_mask_layers:
                     for i in list(range(self.config.target_num_same_scene_head)):
@@ -930,7 +986,7 @@ class TransformerDecoder(object):
                 # with tf.control_dependencies(print_ops):
                 dec_output, _, _ = \
                     self.decoder_stack[layer_id]['cross_attn'].forward(
-                        dec_output, enc_output, cross_attn_mask, None)
+                        dec_output, enc_output, cross_attn_mask, None, None)
                 # print_ops = []
                 # print_ops.append(tf.compat.v1.Print([], [tf.shape(dec_output)], "decoded succsessfully", 50, 100))
                 # with tf.control_dependencies(print_ops):

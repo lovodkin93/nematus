@@ -94,6 +94,10 @@ class TranslationSettings(BaseSettings):
                 '--source_parent_scaled_mask', type=str,
                 default=None, metavar='PATH',
                 help="source_parent_scaled_mask file (default: None)")
+            self._parser.add_argument(
+                '--source_UD_distance_scaled_mask', type=str,
+                default=None, metavar='PATH',
+                help="source_UD_distance_scaled_mask file (default: None)")
 
         self._parser.add_argument(
             '-k', '--beam_size', type=int, default=5, metavar='INT',

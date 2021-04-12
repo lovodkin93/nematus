@@ -87,6 +87,7 @@ def load_data(config):
         splitted_action=config.split_transitions,
         source_same_scene_mask=config.source_train_same_scene_masks,
         source_parent_scaled_mask=config.source_train_parent_scaled_masks,
+        source_UD_distance_scaled_mask=config.source_train_UD_distance_scaled_masks,
         target_same_scene_mask=config.target_train_same_scene_masks
     )
 
@@ -115,6 +116,7 @@ def load_data(config):
             ignore_empty=True,
             source_same_scene_mask=config.source_valid_same_scene_masks,
             source_parent_scaled_mask=config.source_valid_parent_scaled_masks,
+            source_UD_distance_scaled_mask=config.source_valid_UD_distance_scaled_masks,
             target_same_scene_mask=config.target_valid_same_scene_masks
         )
     else:
@@ -283,12 +285,14 @@ def train(config, sess):
                 else:
                     target_same_scene_masks = None
 
-            source_sents, source_same_scene_masks, source_parent_scaled_masks = list(zip(*source_sents))
-            source_sents, source_same_scene_masks, source_parent_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks)
+            source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(zip(*source_sents))
+            source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks), list(source_UD_distance_scaled_masks)
             if not config.source_same_scene_head:
                 source_same_scene_masks = None
             if not config.source_parent_scaled_head:
                 source_parent_scaled_masks = None
+            if not config.source_UD_distance_scaled_head:
+                source_UD_distance_scaled_masks = None
 
 
             #logging.info("AVIVSL11: source_sentence is {0}".format(source_sents))
@@ -302,9 +306,9 @@ def train(config, sess):
             # logging.info("Predicting for " + str(target_sents) + " sentences in batch.")
             # logging.info("Source sents " + str(source_sents) + " .")
             # logging.info("Target sents " + str(target_sents) + " .")
-            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, source_same_scene_mask_in , source_parent_scaled_mask_in, target_same_scene_mask_in \
+            x_in, x_mask_in, y_in, y_mask_in, target_edges_time, target_labels_time, target_parents_time, source_same_scene_mask_in , source_parent_scaled_mask_in, source_UD_distance_scaled_mask_in, target_same_scene_mask_in \
                 = util.prepare_data(source_sents, target_sents, target_edges_time, target_labels_time,
-                                    target_parents_time, config.factors, source_same_scene_masks, source_parent_scaled_masks, target_same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
+                                    target_parents_time, config.factors, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks, target_same_scene_masks, maxlen=None) #x_mask is of length of the longest sentence in the batch times number of sentences in batch and it is all ones (expect for padding of zeros for shorter sentences.. x_in is the ids of rh words in the snetneces in the batch (all of which are of length that is the max lengthed sentence in the batch - shorter sentences are padded with zeros)
             # logging.info("AVIVSL16: factors are {0}".format(config.factors))
             # source_x = ' '.join([num_to_source[0][word[0]] for word in x_in[0]])
             # source_y = ' '.join([num_to_target[word[0]] for word in y_in])
@@ -325,7 +329,7 @@ def train(config, sess):
 
             output = updater.update(
                 sess, x_in, x_mask_in, y_in, y_mask_in, num_to_target,
-                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in, x_source_parent_scaled_mask=source_parent_scaled_mask_in, y_target_same_scene_mask=target_same_scene_mask_in)
+                write_summary_for_this_batch, target_edges_time, target_labels_time, target_parents_time, x_source_same_scene_mask=source_same_scene_mask_in, x_source_parent_scaled_mask=source_parent_scaled_mask_in, x_source_UD_distance_scaled_mask=source_UD_distance_scaled_mask_in, y_target_same_scene_mask=target_same_scene_mask_in)
             #logging.info("AVIVSL16: output is {0}".format(output))
             if config.print_per_token_pro == False:
                 total_loss += output
@@ -374,9 +378,14 @@ def train(config, sess):
                 else:
                     source_parent_scaled_mask_small = None
 
+                if source_UD_distance_scaled_mask_in is not None:
+                    source_UD_distance_scaled_mask_small = source_UD_distance_scaled_mask_in[:, :, :10]
+                else:
+                    source_UD_distance_scaled_mask_small = None
+
                 samples = translate_utils.translate_batch(
                     sess, random_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, 0.0, source_same_scene_mask_small, source_parent_scaled_mask_small)
+                    config.translation_maxlen, 0.0, source_same_scene_mask_small, source_parent_scaled_mask_small, source_UD_distance_scaled_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -403,6 +412,11 @@ def train(config, sess):
                 else:
                     source_parent_scaled_mask_small = None
 
+                if source_UD_distance_scaled_mask_in is not None:
+                    source_UD_distance_scaled_mask_small = source_UD_distance_scaled_mask_in[:, :, :10]
+                else:
+                    source_UD_distance_scaled_mask_small = None
+
                 if target_same_scene_mask_in is not None:
                     target_same_scene_mask_small = target_same_scene_mask_in[:, :, :10]
                 else:
@@ -410,7 +424,7 @@ def train(config, sess):
 
                 samples = translate_utils.translate_batch(
                     sess, beam_search_sampler, x_small, x_mask_small,
-                    config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small, source_parent_scaled_mask_small)
+                    config.translation_maxlen, config.normalization_alpha, source_same_scene_mask_small, source_parent_scaled_mask_small, source_UD_distance_scaled_mask_small)
                 assert len(samples) == len(x_small.T) == len(y_small.T), \
                     (len(samples), x_small.shape, y_small.shape)
                 for xx, yy, ss in zip(x_small.T, y_small.T, samples):
@@ -575,6 +589,8 @@ def validate_with_script(session, beam_search_sampler):
 
     same_scene_masks_file = open(config.source_valid_bleu_same_scene_masks, encoding="UTF-8") if config.source_valid_bleu_same_scene_masks is not None else None
     parent_scaled_masks_file = open(config.source_valid_bleu_parent_scaled_masks, encoding="UTF-8") if config.source_valid_bleu_parent_scaled_masks is not None else None
+    UD_distance_scaled_masks_file = open(config.source_valid_bleu_UD_distance_scaled_masks, encoding="UTF-8") if config.source_valid_bleu_UD_distance_scaled_masks is not None else None
+
 
     with open(config.valid_bleu_source_dataset, encoding="UTF-8") as infile:
         translate_utils.translate_file(
@@ -582,6 +598,7 @@ def validate_with_script(session, beam_search_sampler):
             output_file=out,
             same_scene_masks_file=same_scene_masks_file,
             parent_scaled_masks_file=parent_scaled_masks_file,
+            UD_distance_scaled_masks_file=UD_distance_scaled_masks_file,
             session=session,
             sampler=beam_search_sampler,
             config=config,
@@ -594,6 +611,8 @@ def validate_with_script(session, beam_search_sampler):
         same_scene_masks_file.close()
     if config.source_valid_bleu_parent_scaled_masks is not None:
         parent_scaled_masks_file.close()
+    if config.source_valid_bleu_UD_distance_scaled_masks is not None:
+        UD_distance_scaled_masks_file.close()
 
     ################################################################################ delete? #############################################################################
     # if config.source_valid_bleu_same_scene_masks is not None:
@@ -741,12 +760,14 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
     text_iterator.set_remove_parse(False)
     for source_sents, target_sents in text_iterator:
 
-        source_sents, source_same_scene_masks, source_parent_scaled_masks = list(zip(*source_sents))
-        source_sents, source_same_scene_masks, source_parent_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks)
+        source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(zip(*source_sents))
+        source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks), list(source_UD_distance_scaled_masks)
         if not text_iterator.source_same_scene_mask_orig:
             source_same_scene_masks = None
         if not text_iterator.source_parent_scaled_mask_orig:
             source_parent_scaled_masks = None
+        if not text_iterator.source_UD_distance_scaled_mask_orig:
+            source_UD_distance_scaled_masks = None
 
 
         logging.info(f"Source len {len(source_sents)}")
@@ -785,7 +806,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
             else:
                 target_same_scene_masks = None
 
-        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask = \
+        x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, source_UD_distance_scaled_mask, target_same_scene_mask = \
                                                                              util.prepare_data(source_sents,
                                                                                                target_sents,
                                                                                                target_edges_time,
@@ -794,6 +815,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
                                                                                                config.factors,
                                                                                                source_same_scene_masks,
                                                                                                source_parent_scaled_masks,
+                                                                                               source_UD_distance_scaled_masks,
                                                                                                target_same_scene_masks,
                                                                                                maxlen=None) # TODO: AVIVSL stopped here
 
@@ -813,7 +835,7 @@ def calc_cross_entropy_per_sentence(session, model, config, text_iterator, updat
         # run_options = tf.compat.v1.RunOptions(report_tensor_allocations_upon_oom=True)  # TODO delete
         # ce_vals = session.run(model.loss_per_sentence, feed_dict=feeds, options=run_options)
 
-        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, target_same_scene_mask)
+        batch_ce_vals = updater.loss_per_sentence(session, x, x_mask, y, y_mask, x_edges_time, x_labels_time, x_parents_time, source_same_scene_mask, source_parent_scaled_mask, source_UD_distance_scaled_mask, target_same_scene_mask)
 
         # Optionally, do length normalization.
         batch_token_counts = [np.count_nonzero(s) for s in y_mask.T]
