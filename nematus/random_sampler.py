@@ -130,8 +130,8 @@ def _random_sample(model_adapters, beam_size, batch_size_x,
     # Encode the input and generate a 1-step decoding function for each model.
     decoding_functions = []
     for adapter in model_adapters:
-        encoder_output = adapter.encode()
-        func = adapter.generate_decoding_function(encoder_output)
+        encoder_output = adapter.encode()  #AVIVSL: calls the encoder through the transformer_inference
+        func = adapter.generate_decoding_function(encoder_output)  #AVIVSL: calls the decoder through the transformer_inference
         decoding_functions.append(func)
 
     # Initialize the timestep counter.

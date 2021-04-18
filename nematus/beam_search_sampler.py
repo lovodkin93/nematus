@@ -139,8 +139,8 @@ def _beam_search(model_adapters, beam_size, batch_size_x, max_translation_len,
     # Encode the input and generate a 1-step decoding function for each model.
     decoding_functions = []
     for adapter in model_adapters:
-        encoder_output = adapter.encode()
-        func = adapter.generate_decoding_function(encoder_output)
+        encoder_output = adapter.encode() #AVIVSL: calls the encoder through the transformer_inference
+        func = adapter.generate_decoding_function(encoder_output) #AVIVSL: calls the decoder through the transformer_inference
         decoding_functions.append(func)
 
     # Initialize the timestep counter.
@@ -355,8 +355,10 @@ def _generate_while_loop_body_func(model_adapters, decoding_functions,
 
             # Get logits.
             step_logits, alive_memories[i] = decoding_functions[i](
-                next_ids, current_time_step, alive_memories[i], alive_seq_batch)
-
+                step_target_ids=next_ids,
+                current_time_step=current_time_step,
+                memories=alive_memories[i],
+                x=alive_seq_batch)
             # Calculate the scores for all possible extensions of alive
             # hypotheses.
             log_probs = tf.nn.log_softmax(step_logits, axis=-1)
