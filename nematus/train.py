@@ -291,7 +291,7 @@ def train(config, sess):
 
             source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(zip(*source_sents))
             source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks), list(source_UD_distance_scaled_masks)
-            if not config.source_same_scene_head:
+            if (not config.source_same_scene_head) and (not config.source_same_scene_cross_attention_head):
                 source_same_scene_masks = None
             if not config.source_parent_scaled_head:
                 source_parent_scaled_masks = None

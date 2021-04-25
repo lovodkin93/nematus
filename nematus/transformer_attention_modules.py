@@ -135,15 +135,15 @@ class MultiHeadAttentionLayer(object):
 
         ################################################## PRINTS ########################################################
         # print_ops = []
-        # if not isDecoder and self.name == "self_attn_sublayer":
+        # if self.name == "cross_attn_sublayer":
         #     print_ops.append(
         #         tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL6: attn_mask for encoder is" + self.name, summarize=10000))
         # if isDecoder and self.name == "self_attn_sublayer":
         #     print_ops.append(
         #         tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL6: attn_mask for decoder is" + self.name, summarize=10000))
-        # print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "in_values" + self.name, 50, 100))
-        # print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "in_queries " + self.name, 50, 100))
-        # print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "in_keys" + self.name, 50, 100))
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(values), values[0, 0, :, :10]], "in_values" + self.name, 50, 100))
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(queries), queries[0, 0, :, :10]], "in_queries " + self.name, 50, 100))
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(keys), keys[0, 0, :, :10]], "in_keys" + self.name, 50, 100))
         # if "self" in self.name:
         #     print_ops = []
         # with tf.control_dependencies(print_ops):
@@ -153,6 +153,22 @@ class MultiHeadAttentionLayer(object):
                        false_fn=lambda: keys)
         values = tf.cond(pred=tf.greater(num_beams, 1), true_fn=lambda: tf.tile(values, [num_beams, 1, 1, 1]),
                          false_fn=lambda: values)
+
+
+        ################################################## PRINTS ########################################################
+        # print_ops = []
+        # if self.name == "cross_attn_sublayer":
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(keys), keys[:,:,0,:]], "AVIVSL6: keys size in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(values), values[:,:,0,:]], "AVIVSL6: values size in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(queries)], "AVIVSL6: queries size in " + self.name, summarize=10000))
+        # with tf.control_dependencies(print_ops):
+        #     num_beams = num_beams * 1
+        #################################################################################################################
+
+
 
         # print_ops = []
         # print_ops.append(
@@ -165,9 +181,9 @@ class MultiHeadAttentionLayer(object):
 
         ################################################## PRINTS ########################################################
         # print_ops = []
-        # if not isDecoder and self.name == "self_attn_sublayer" and  attn_mask is not None:
+        # if self.name == "cross_attn_sublayer":
         #      print_ops.append(
-        #          tf.compat.v1.Print([], [tf.shape(attn_mask)], "AVIVSL6: attn_mask for encoder is" + self.name, summarize=10000))
+        #          tf.compat.v1.Print([], [tf.shape(attn_logits)], "AVIVSL6: attn_logits size" + self.name, summarize=10000))
         # # if isDecoder and self.name == "self_attn_sublayer":
         # #     print_ops.append(
         # #         tf.compat.v1.Print([], [tf.shape(attn_mask), tf.shape(attn_logits)], "AVIVSL6: attn_mask and attn_logits for decoder is" + self.name, summarize=10000))
@@ -194,7 +210,7 @@ class MultiHeadAttentionLayer(object):
             # enc_dec = "decoder" if isDecoder else "encoder"
             # if self.name == "self_attn_sublayer" and not isDecoder:
             #     print_ops.append(
-            #         tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, 0, :, :]],
+            #         tf.compat.v1.Print([], [tf.shape(attn_mask), num_beams, attn_mask[:, :, :, :]],
             #                            "AVIVSL7: in " + enc_dec + " attn_mask shape, num_beams and attn " + self.name, summarize=10000))
             #     print_ops.append(
             #          tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[0, 0, :, :]],
@@ -217,8 +233,8 @@ class MultiHeadAttentionLayer(object):
             # enc_dec = "decoder" if isDecoder else "encoder"
             # if self.name == "self_attn_sublayer" and not isDecoder:
             #     print_ops.append(
-            #         tf.compat.v1.Print([], [tf.shape(attn_logits), attn_logits[0, 0, :, :]],
-            #                            "AVIVSL8: in " + enc_dec + " attn_logits (with shape) after mask" + self.name,
+            #         tf.compat.v1.Print([], [tf.shape(attn_mask),attn_mask[:,0,:,:]],
+            #                            "AVIVSL20: in " + enc_dec + " attn_mask" + self.name,
             #                            summarize=10000))
             # with tf.control_dependencies(print_ops):
             #     attn_logits = attn_logits * 1
@@ -333,15 +349,76 @@ class MultiHeadAttentionLayer(object):
         weighted_memories = tf.matmul(attn_weights, values)
         # ############################################### PRINTING #######################################################
         # printops = []
-        # if isDecoder:
+        # if self.name == 'cross_attn_sublayer':
         #     printops.append(tf.compat.v1.Print([], [tf.shape(attn_weights), attn_weights[:,0,:,:]],
-        #                                    "AVIVSL7: attn_softmax_weights ", summarize=10000))
+        #                                    "AVIVSL7: attn_weights ", summarize=10000))
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(values), values[:,0,:,:]],
+        #                                    "AVIVSL7: values ", summarize=10000))
+        #     printops.append(tf.compat.v1.Print([], [tf.shape(weighted_memories), weighted_memories[:,0,:,:]],
+        #                                    "AVIVSL7: weighted_memories ", summarize=10000))
         # with tf.control_dependencies(printops):
         #     weighted_memories = weighted_memories * 1
         ################################################################################################################
         return weighted_memories, undropped_attn_weights
 
-    def forward(self, query_context, memory_context, attn_mask, pre_softmax_scaled_attn_mask,post_softmax_scaled_attn_mask, layer_memories, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends pre_softmax_scaled_attn_mask
+    def _subtitute_heads(self, head_set, substitutes):
+        """
+        substitues heads of keys/values/queries with pre-defined heads
+        :param head_set: the full keys/values/queries head set, with shape: [#batches, sententce_len, #heads, embedding size/#heads]
+        :param substitutes: list of tuples, each containing: (head to subtitute, #of those heads to subtitute)
+        :return: the updated full keys/values/queries head set
+        """
+        total_head_subs = 0
+        updated_head_set = None
+        # first concatenating all the extra new heads
+        for elem in substitutes:
+            full_head=elem[0]
+            num_of_heads = elem[1]
+            full_head = tf.transpose(a=full_head, perm=[0, 2, 1, 3])
+            total_head_subs+=num_of_heads
+            # concatenting all the heads of the current head (each time taking the i_th piece of embedding size/#heads of it
+            for i in list(range(num_of_heads)):
+                head_embedding_size = tf.shape(head_set)[3]
+                curr_head = full_head[:,:,:,(i*head_embedding_size):(((i+1)*head_embedding_size))]
+                if updated_head_set is None:
+                    updated_head_set = curr_head
+                else:
+                    updated_head_set = tf.concat([updated_head_set,curr_head], axis=2)
+            # then adding the part of the original head_set that wasn't substitued
+
+            ############################################### PRINTS #################################################################
+            # print_ops = []
+            # if updated_head_set is None:
+            #     print_ops.append(
+            #         tf.compat.v1.Print([], [], "AVIVSL10: it's None!", summarize=10000))
+            # else:
+            #     print_ops.append(
+            #         tf.compat.v1.Print([], [tf.shape(updated_head_set)], "AVIVSL10: updated_head_set before", summarize=10000))
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(head_set[:,:,total_head_subs:,:])], "AVIVSL10: head_set[:,:,total_head_subs:,:] ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     head_set = head_set * 1
+            #########################################################################################################################
+
+            if updated_head_set is None:
+                updated_head_set = head_set
+            else:
+                updated_head_set = tf.concat([updated_head_set, head_set[:,:,total_head_subs:,:]], axis=2)
+
+            ############################################### PRINTS #################################################################
+            # print_ops = []
+            # print_ops.append(
+            #     tf.compat.v1.Print([], [tf.shape(updated_head_set)], "AVIVSL10: updated_head_set after", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     updated_head_set = updated_head_set * 1
+            #########################################################################################################################
+
+            return updated_head_set
+
+
+
+
+    def forward(self, query_context, memory_context, attn_mask, pre_softmax_scaled_attn_mask,post_softmax_scaled_attn_mask, layer_memories, cross_attention_keys_update_rules, isDecoder=False): #TODO:  AVIVSL make sure everyone who is calling it sends pre_softmax_scaled_attn_mask
         """ Propagates the input information through the attention layer. """
         # The context for the query and the referenced memory is identical in case of self-attention
         if memory_context is None:
@@ -363,7 +440,35 @@ class MultiHeadAttentionLayer(object):
         #     query_context = query_context * 1
         #########################################################################################################################
         # Get attention inputs
-        queries, keys, values = self._compute_attn_inputs(query_context, memory_context)
+        queries, keys, values = self._compute_attn_inputs(query_context, memory_context) ## size: values+keys: [3 19 256] queries: [3 24 256] source language sent len:19, target language sent len:24
+
+
+        ############################################### PRINTS #################################################################
+        # print_ops = []
+        # if self.name=='cross_attn_sublayer':
+        #     print_ops.append(
+        #              tf.compat.v1.Print([], [tf.shape(queries)], "AVIVSL6: queries in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(keys)], "AVIVSL6: keys in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #         tf.compat.v1.Print([], [tf.shape(values)], "AVIVSL6: values in " + self.name, summarize=10000))
+        # if attn_mask is not None and self.name=='self_attn_sublayer' and isDecoder:
+        #     print_ops.append(
+        #          tf.compat.v1.Print([], [tf.shape(queries)], "AVIVSL6: queries in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #          tf.compat.v1.Print([], [tf.shape(keys)], "AVIVSL6: keys in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #          tf.compat.v1.Print([], [tf.shape(values)], "AVIVSL6: values in " + self.name, summarize=10000))
+        # #     #     print_ops.append(
+        # #     #          tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL7: attn_mask " + self.name, 50, 100))
+        # #     # if "self" in self.name:
+        # #     #     print_ops = []
+        #     with tf.control_dependencies(print_ops):
+        #         attn_mask = attn_mask * 1
+        # with tf.control_dependencies(print_ops):
+        #     queries = queries * 1
+        #########################################################################################################################
+
 
         # Recall and update memories (analogous to the RNN state) - decoder only
         if layer_memories is not None:
@@ -373,9 +478,31 @@ class MultiHeadAttentionLayer(object):
             layer_memories['values'] = values
 
         # Split attention inputs among attention heads
-        split_queries = self._split_among_heads(queries)
-        split_keys = self._split_among_heads(keys)
-        split_values = self._split_among_heads(values)
+        split_queries = self._split_among_heads(queries) ## size: queries: [3 24 8 32] target language sent len:24
+        split_keys = self._split_among_heads(keys) ## size: [3 19 8 32] source language sent len:19
+        split_values = self._split_among_heads(values) ## size: [3 19 8 32] source language sent len:19
+
+        if cross_attention_keys_update_rules is not None:
+            split_keys = self._subtitute_heads(split_keys, cross_attention_keys_update_rules)
+
+        ############################################### PRINTS #################################################################
+        # print_ops = []
+        # if attn_mask is not None and self.name=='cross_attn_sublayer':
+            # print_ops.append(
+            #      tf.compat.v1.Print([], [tf.shape(split_queries)], "AVIVSL20: split_queries in " + self.name, summarize=10000))
+            # print_ops.append(
+            #      tf.compat.v1.Print([], [tf.shape(split_keys[:,:,:,tf.shape(split_keys)[3]:tf.shape(split_keys)[3]+3])], "AVIVSL20: split_keys in " + self.name, summarize=10000))
+        #     print_ops.append(
+        #          tf.compat.v1.Print([], [tf.shape(split_values)], "AVIVSL20: split_values in " + self.name, summarize=10000))
+        # # #     #     print_ops.append(
+        # # #     #          tf.compat.v1.Print([], [tf.shape(attn_mask), attn_mask], "AVIVSL7: attn_mask " + self.name, 50, 100))
+        # # #     # if "self" in self.name:
+        # # #     #     print_ops = []
+        #     with tf.control_dependencies(print_ops):
+        #         attn_mask = attn_mask * 1
+        #########################################################################################################################
+
+
         # Apply attention function
         split_weighted_memories, attn_softmax_weights = self._dot_product_attn(split_queries, split_keys, split_values, attn_mask, pre_softmax_scaled_attn_mask,post_softmax_scaled_attn_mask,
                                                          scaling_on=True, isDecoder=isDecoder)
@@ -384,7 +511,7 @@ class MultiHeadAttentionLayer(object):
         # Feed through a dense layer
         projected_memories = self.context_projection.forward(weighted_memories)
         ############################################### PRINTS #################################################################
-        # print_ops = []
+        print_ops = []
         # if isDecoder and self.name=="self_attn_sublayer":
         #     print_ops.append(tf.compat.v1.Print([], [tf.shape(weighted_memories), weighted_memories],
         #                                         "AVIVSL7: decoder self_attn weighted_memories:" + self.name,summarize=10000))

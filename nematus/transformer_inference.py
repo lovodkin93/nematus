@@ -4,6 +4,7 @@ import numpy as np
 
 import sys
 import tensorflow as tf
+import ast
 
 # from gi.overrides.GObject import signal_accumulator_first_wins
 # from parsing.corpus import ConllSent
@@ -194,6 +195,21 @@ class ModelAdapter:
                     if attention_rules:
                         self_attn_mask = tf.zeros_like(attention_rules[0])  # allow attention
                         self_attn_mask = decoder.combine_attention_rules(attention_rules, self_attn_mask)
+
+                s_same_scene_mask = self._model.s_same_scene_mask
+                if s_same_scene_mask is not None:
+                    s_same_scene_mask = tf.cast(s_same_scene_mask, dtype=tf.float32)
+
+                if self.config.source_same_scene_cross_attention_head:
+                    if self.config.source_same_scene_cross_attention_masks_layers == "all_layers":
+                        source_same_scene_cross_attention_masks_layers = list(range(1, self.config.transformer_dec_depth + 1))
+                    else:
+                        source_same_scene_cross_attention_masks_layers = ast.literal_eval(
+                            self.config.source_same_scene_cross_attention_masks_layers)
+                else:
+                    source_same_scene_cross_attention_masks_layers = []
+
+
                 for layer_id in range(1, self.config.transformer_dec_depth + 1):
                     layer = decoder.decoder_stack[layer_id]
                     mem_key = 'layer_{:d}'.format(layer_id)
@@ -204,12 +220,38 @@ class ModelAdapter:
                         layer_memories = None
                     else:
                         layer_memories = memories[mem_key]
+
+                    cross_attention_keys_update_rules = []
+                    if s_same_scene_mask is not None and layer_id in source_same_scene_cross_attention_masks_layers:
+                        same_scene_cross_attention_key = tf.matmul(s_same_scene_mask, encoder_output.enc_output) / tf.cast(
+                            tf.shape(encoder_output.enc_output)[1], dtype=tf.float32)
+                        same_scene_cross_attention_key = tf.expand_dims(same_scene_cross_attention_key, axis=1)
+                        cross_attention_keys_update_rules.append((same_scene_cross_attention_key, self.config.source_num_same_scene_cross_attention_head))
+                    cross_attention_keys_update_rules = cross_attention_keys_update_rules if cross_attention_keys_update_rules else None  # if list is empty, make it None
+
+                    # ############################################## PRINTING #######################################################
+                    # printops = []
+                    # if cross_attention_keys_update_rules is not None:
+                    #     printops.append(tf.compat.v1.Print([], [layer_id],"AVIVSL9: cross_attention_keys_update_rules[0][0] ",summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [cross_attention_keys_update_rules[0][1]], "AVIVSL9: cross_attention_keys_update_rules[0][0] ", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(cross_attention_keys_update_rules)[0][1]], "AVIVSL9: cross_attention_keys_update_rules[1] ", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(s_same_scene_mask)],"AVIVSL9: s_same_scene_mask ", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(encoder_output.enc_output)],
+                    #                                    "AVIVSL9: encoder_output.enc_output ", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(same_scene_cross_attention_key)],
+                    #                                    "AVIVSL9: same_scene_cross_attention_key after", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.cast(tf.shape(encoder_output.enc_output)[1], dtype=tf.float32)],
+                    #                                    "AVIVSL9: tf.cast(tf.shape(encoder_output.enc_output)[1], dtype=tf.float32) ", summarize=10000))
+                    # with tf.control_dependencies(printops):
+                    #     layer_output = layer_output * 1
+                    # ###############################################################################################################
+
                     layer_output, memories[mem_key], _ = \
                         layer['self_attn'].forward(
-                            layer_output, None, self_attn_mask, None, None, layer_memories, isDecoder=True) #AVIVSL: here send to the self-attention
+                            layer_output, None, self_attn_mask, None, None, None, layer_memories, isDecoder=True) #AVIVSL: here send to the self-attention
                     layer_output, _, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
-                        encoder_output.cross_attn_mask, None, None)
+                        encoder_output.cross_attn_mask, None, None, cross_attention_keys_update_rules=cross_attention_keys_update_rules) # TODO: AVIVSL add here the cross_attention_keys_update_rules
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.

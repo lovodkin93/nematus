@@ -403,26 +403,16 @@ class ConfigSpecification:
             help='True if system uses one head to attend only to parent and adjacent words (default: False)'))
 
         group.append(ParameterSpecification(
-            name='source_num_parent_scaled_head', default=1,
-            visible_arg_names=['--source_num_parent_scaled_head'],
-            type=int, metavar='INT',
-            help='number of parent_scaled_heads per layer in source (default: '
-                 '%(default)s)'))
-
-        group.append(ParameterSpecification(
             name='source_UD_distance_scaled_head', default=False,
             visible_arg_names=['--source_UD_distance_scaled_head'],
             action='store_true',
             help='True if system uses one head with UD_distance_scaled mask (default: False)'))
 
         group.append(ParameterSpecification(
-            name='source_num_UD_distance_scaled_head', default=1,
-            visible_arg_names=['--source_num_UD_distance_scaled_head'],
-            type=int, metavar='INT',
-            help='number of UD_distance_scaled_heads per layer in source (default: '
-                 '%(default)s)'))
-
-
+            name='source_same_scene_cross_attention_head', default=False,
+            visible_arg_names=['--source_same_scene_cross_attention_head'],
+            action='store_true',
+            help='True if system uses head to attend only to tokens in the same scene of source language as current one in cross attention in encoder (default: False)'))
 
         group.append(ParameterSpecification(
             name='target_same_scene_head_loss', default=False,
@@ -436,6 +426,27 @@ class ConfigSpecification:
             visible_arg_names=['--target_same_scene_head_reg_factor'],
             type=float, metavar='FLOAT',
             help='regularization factor of the target same scene head (default: %(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='source_num_parent_scaled_head', default=1,
+            visible_arg_names=['--source_num_parent_scaled_head'],
+            type=int, metavar='INT',
+            help='number of parent_scaled_heads per layer in source (default: '
+                 '%(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='source_num_UD_distance_scaled_head', default=1,
+            visible_arg_names=['--source_num_UD_distance_scaled_head'],
+            type=int, metavar='INT',
+            help='number of UD_distance_scaled_heads per layer in source (default: '
+                 '%(default)s)'))
+
+        group.append(ParameterSpecification(
+            name='source_num_same_scene_cross_attention_head', default=1,
+            visible_arg_names=['--source_num_same_scene_cross_attention_head'],
+            type=int, metavar='INT',
+            help='number of heads per layer applying source same_scene in cross_attention in decoder (default: '
+                 '%(default)s)'))
 
         group.append(ParameterSpecification(
             name='source_same_scene_masks_layers', default='all_layers',
@@ -454,6 +465,12 @@ class ConfigSpecification:
             visible_arg_names=['--source_UD_distance_scaled_masks_layers'],
             type=str,
             help='which layers to apply the source UD_distance_scaled_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='source_same_scene_cross_attention_masks_layers', default='all_layers',
+            visible_arg_names=['--source_same_scene_cross_attention_masks_layers'],
+            type=str,
+            help='which layers to apply the source same_scene_cross_attention_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
 
         group.append(ParameterSpecification(
             name='source_parent_scaled_masks_when', default='pre_softmax',
@@ -1505,8 +1522,8 @@ def _check_config_consistency(spec, config, set_by_user):
                   '--valid_target_dataset'
             error_messages.append(msg)
 
-    if config.source_same_scene_head and (not config.source_valid_same_scene_masks or not config.source_train_same_scene_masks):
-        msg ='--source_same_scene_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
+    if (config.source_same_scene_head or config.source_same_scene_cross_attention_head) and (not config.source_valid_same_scene_masks or not config.source_train_same_scene_masks):
+        msg ='--source_same_scene_head and --source_same_scene_cross_attention_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
         error_messages.append(msg)
 
     if config.source_parent_scaled_head and (not config.source_valid_parent_scaled_masks or not config.source_train_parent_scaled_masks):

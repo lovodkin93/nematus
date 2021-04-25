@@ -43,7 +43,7 @@ class ModelInputs(object):
             name='training',
             shape=())
 
-        if config.source_same_scene_head:
+        if config.source_same_scene_head or config.source_same_scene_cross_attention_head:
             self.x_source_same_scene_mask = tf.compat.v1.placeholder(
                 name='x_source_same_scene_mask',
                 shape=(seq_len, seq_len, batch_size),

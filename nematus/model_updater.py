@@ -252,7 +252,7 @@ class ModelUpdater(object):
                     # sentences to later calculation
                     feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = apply_grads
-                if self._config.source_same_scene_head:
+                if self._config.source_same_scene_head or self._config.source_same_scene_cross_attention_head:
                     feed_dict[self._replicas[j].inputs.x_source_same_scene_mask] = split_x_source_same_scene_mask[i + j]
                 if self._config.source_parent_scaled_head:
                     feed_dict[self._replicas[j].inputs.x_source_parent_scaled_mask] = split_x_source_parent_scaled_mask[i + j]
