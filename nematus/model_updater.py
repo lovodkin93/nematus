@@ -252,13 +252,13 @@ class ModelUpdater(object):
                     # sentences to later calculation
                     feed_dict[self._replicas[j].inputs.index] = split_index[i + j]
                 feed_dict[self._replicas[j].inputs.training] = apply_grads
-                if self._config.source_same_scene_head or self._config.source_same_scene_cross_attention_head:
+                if self._config.source_same_scene_head or self._config.source_same_scene_cross_attention_head or self._config.target_same_scene_head_FC_FFN:
                     feed_dict[self._replicas[j].inputs.x_source_same_scene_mask] = split_x_source_same_scene_mask[i + j]
                 if self._config.source_parent_scaled_head:
                     feed_dict[self._replicas[j].inputs.x_source_parent_scaled_mask] = split_x_source_parent_scaled_mask[i + j]
                 if self._config.source_UD_distance_scaled_head:
                     feed_dict[self._replicas[j].inputs.x_source_UD_distance_scaled_mask] = split_x_source_UD_distance_scaled_mask[i + j]
-                if self._config.target_same_scene_head_loss:
+                if self._config.target_same_scene_head_loss or self._config.target_same_scene_head_FC_FFN:
                     feed_dict[self._replicas[j].inputs.y_target_same_scene_mask] = split_y_target_same_scene_mask[i + j]
                 if self._config.target_graph:
                     timesteps = split_y[i + j].shape[0]

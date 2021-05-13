@@ -107,7 +107,10 @@ class ModelAdapter:
                 # print("memory print", memories)
                 # TODO no memories in target_graph inference. and need to words
                 # by words translate in train (perhaps with the same func?)
-                printops = []
+                ############################################## PRINT ###################################################
+                # printops = []
+                # printops.append(tf.compat.v1.Print([], [tf.shape(step_target_ids), step_target_ids], "AVIVSL11: step_target_ids ", summarize=10000))
+                # printops.append(tf.compat.v1.Print([], [tf.shape(x)], "AVIVSL11: x ", summarize=10000))
                 # printops.append(
                 #     tf.compat.v1.Print([], [tf.shape(x), x], "decoded x_", 10, 50))
                 # printops.append(
@@ -117,6 +120,8 @@ class ModelAdapter:
                 # printops.append(tf.compat.v1.Print([], [memories["layer_1"]["keys"], memories[
                 #                 "layer_1"]["values"]], "memories", 10, 50))
                 # with tf.control_dependencies(printops):
+                #     step_target_ids = step_target_ids * 1
+                ########################################################################################################
                 if self.config.target_graph or not self.config.sequential:
                     max_size = self.config.maxlen + 1
                     x = tf.pad(x, [[0, 0], [0, max_size - tf.shape(x)[1]]])
@@ -209,6 +214,23 @@ class ModelAdapter:
                 else:
                     source_same_scene_cross_attention_masks_layers = []
 
+                if self.config.target_same_scene_head_FC_FFN:
+                    if self.config.target_same_scene_masks_FC_FFN_layers == "all_layers":
+                        target_same_scene_mask_FC_FFN_layers = list(range(1, self.config.transformer_dec_depth + 1))
+                    else:
+                        target_same_scene_mask_FC_FFN_layers = ast.literal_eval(
+                            self.config.target_same_scene_masks_FC_FFN_layers)
+                else:
+                    target_same_scene_mask_FC_FFN_layers = []
+
+                if self.config.target_same_scene_head_FC_FFN:
+                    withEmbedding = True if self.config.target_same_scene_masks_FC_FFN_how != "just_source_mask" else False
+                    target_mask_learning_input = self.create_target_mask_learning_input(layer_output, s_same_scene_mask, withEmbedding)
+                else:
+                    target_mask_learning_input = None
+
+                attn_softmax_weights_list = []
+
 
                 for layer_id in range(1, self.config.transformer_dec_depth + 1):
                     layer = decoder.decoder_stack[layer_id]
@@ -229,8 +251,36 @@ class ModelAdapter:
                         cross_attention_keys_update_rules.append((same_scene_cross_attention_key, self.config.source_num_same_scene_cross_attention_head))
                     cross_attention_keys_update_rules = cross_attention_keys_update_rules if cross_attention_keys_update_rules else None  # if list is empty, make it None
 
+                    if target_mask_learning_input is not None and layer_id in target_same_scene_mask_FC_FFN_layers:
+                        if self.config.target_same_scene_masks_FC_FFN_how == 'with_each_layer_input':
+                            target_mask_learning_input = self.create_target_mask_learning_input(layer_output, s_same_scene_mask, True)  # update for each layer
+                        else:
+                            target_mask_learning_input = target_mask_learning_input
+                        target_mask_learning=(target_mask_learning_input, self.config.target_num_same_scene_head_FC_FFN)
+                    else:
+                        target_mask_learning=None
+
+                    # # ############################################## PRINTING #######################################################
+                    # printops = []
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning_input_list[0][0])],
+                    #                                    "AVIVSL100: target_mask_learning_input_list layer " + str(
+                    #                                        layer_id), summarize=11000))
+                    # printops.append(tf.compat.v1.Print([], [target_mask_learning_input_list[0][1]],
+                    #                                    "AVIVSL100: target_num_same_scene_head_FC_FFN layer " + str(
+                    #                                        layer_id), summarize=11000))
+                    # with tf.control_dependencies(printops):
+                    #     layer_output = layer_output * 1
+                    # # ###############################################################################################################
+
+
                     # ############################################## PRINTING #######################################################
                     # printops = []
+                    # if self_attn_mask is not None:
+                    #     printops.append(tf.compat.v1.Print([], [tf.shape(self_attn_mask)],"AVIVSL9: inference: self_attn_mask in layer " + str(layer_id) ,summarize=10000))
+                    # else:
+                    #     printops.append(tf.compat.v1.Print([], []," no mask! " + str(layer_id), summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(layer_output)], "AVIVSL9: inference layer_output: ", summarize=10000))
+
                     # if cross_attention_keys_update_rules is not None:
                     #     printops.append(tf.compat.v1.Print([], [layer_id],"AVIVSL9: cross_attention_keys_update_rules[0][0] ",summarize=10000))
                     # printops.append(tf.compat.v1.Print([], [cross_attention_keys_update_rules[0][1]], "AVIVSL9: cross_attention_keys_update_rules[0][0] ", summarize=10000))
@@ -242,16 +292,17 @@ class ModelAdapter:
                     #                                    "AVIVSL9: same_scene_cross_attention_key after", summarize=10000))
                     # printops.append(tf.compat.v1.Print([], [tf.cast(tf.shape(encoder_output.enc_output)[1], dtype=tf.float32)],
                     #                                    "AVIVSL9: tf.cast(tf.shape(encoder_output.enc_output)[1], dtype=tf.float32) ", summarize=10000))
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning_input), target_mask_learning_input[2,:,:,:]], "AVIVSL9: target_mask_learning_input[0,:,:,:] in layer " + str(layer_id), summarize=11000))
                     # with tf.control_dependencies(printops):
                     #     layer_output = layer_output * 1
                     # ###############################################################################################################
 
-                    layer_output, memories[mem_key], _ = \
+                    layer_output, memories[mem_key], _, _ = \
                         layer['self_attn'].forward(
-                            layer_output, None, self_attn_mask, None, None, None, layer_memories, isDecoder=True) #AVIVSL: here send to the self-attention
-                    layer_output, _, _ = layer['cross_attn'].forward(
+                            layer_output, None, self_attn_mask, None, None, None, target_mask_learning, layer_memories, isDecoder=True, isInference=True) #AVIVSL: here send to the self-attention
+                    layer_output, _, _, _ = layer['cross_attn'].forward(
                         layer_output, encoder_output.enc_output,
-                        encoder_output.cross_attn_mask, None, None, cross_attention_keys_update_rules=cross_attention_keys_update_rules) # TODO: AVIVSL add here the cross_attention_keys_update_rules
+                        encoder_output.cross_attn_mask, None, None, cross_attention_keys_update_rules=cross_attention_keys_update_rules, isDecoder=True)
                     layer_output = layer['ffn'].forward(layer_output)
                 # Return prediction at the final time-step to be consistent
                 # with the inference pipeline.
@@ -399,3 +450,27 @@ class ModelAdapter:
         # if len(label_times.shape) == 3:
         #     label_times = np.expand_dims(label_times, axis=0)
         return edge_times, label_times, parents
+
+    def create_target_mask_learning_input(self, embedding, source_mask, withEmbedding):
+        num_batch = tf.shape(source_mask)[0]
+        source_sent_len = tf.shape(source_mask)[1]
+        max_sent_len = self.config.maxlen + 1
+        padding_size = tf.math.maximum(max_sent_len - source_sent_len, 0)
+        target_mask_learning_input = tf.pad(source_mask, [[0, 0, ], [0, padding_size], [0, padding_size]], "CONSTANT")  # pad to the maximum length of a sentence
+
+        # # ################################################# PRINT ###################################################
+        # print_ops = []
+        # print_ops.append(tf.compat.v1.Print([], [num_batch, max_sent_len], "AVIVSL14: target_mask_learning_input shape: ",
+        #                                     summarize=10000))
+        # with tf.control_dependencies(print_ops):
+        #     target_mask_learning_input = target_mask_learning_input * 1  # TODO delete
+        # # ###########################################################################################################
+        # TODO : problem here - didn't filter long sentences...
+        target_mask_learning_input = tf.reshape(target_mask_learning_input, [num_batch, max_sent_len*max_sent_len]) # [batch_size, maxlen*maxlen] turn the mask (2-D) into a vector - concatenate its rows
+        target_mask_learning_input = tf.expand_dims(target_mask_learning_input, axis=1) # [batch_size, 1, maxlen*maxlen] add the head dimension
+        target_mask_learning_input = tf.expand_dims(target_mask_learning_input, axis=2) # [batch_size, 1, 1, maxlen*maxlen] add the num_sent dimension
+        target_mask_learning_input = tf.tile(target_mask_learning_input, [self.config.beam_size,1,1,1]) # [batch_size*beam_size, 1, 1, maxlen*maxlen] duplicate for all the beams
+        expanded_embedding = tf.expand_dims(embedding, axis=1)  # add the head dimension [batch_size*beam_size, 1, 1, embed_size]
+        if withEmbedding:
+            target_mask_learning_input = tf.concat([target_mask_learning_input, expanded_embedding], axis=3)
+        return target_mask_learning_input

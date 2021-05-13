@@ -163,6 +163,18 @@ def _beam_search(model_adapters, beam_size, batch_size_x, max_translation_len,
     alive_memories = [ma.generate_initial_memories(batch_size_x, beam_size)
                       for ma in model_adapters]
 
+    ################################################## PRINT ##########################################################
+    # printops = []
+    # printops.append(tf.compat.v1.Print([], [alive_memories[0]['layer_1']['keys']], "AVIVSL20: alive_memories[0] ", summarize=10000))
+    # printops.append(tf.compat.v1.Print([], [alive_memories[0]['layer_1']['keys']], "AVIVSL20: alive_memories[0] ", summarize=10000))
+    # printops.append(tf.compat.v1.Print([], [alive_memories[0]['layer_1']['keys']], "AVIVSL20: alive_memories[0] ", summarize=10000))
+    # printops.append(tf.compat.v1.Print([], [alive_memories[0]['layer_1']['keys']], "AVIVSL20: alive_memories[0] ", summarize=10000))
+    # printops.append(tf.compat.v1.Print([], [alive_memories[0]['layer_1']['keys']], "AVIVSL20: alive_memories[0] ", summarize=10000))
+    #
+    # with tf.control_dependencies(printops):
+    #     max_translation_len = max_translation_len * 1
+    ###################################################################################################################
+
     # Generate the conditional and body functions for the beam search loop.
 
     loop_cond = _generate_while_loop_cond_func(max_translation_len)

@@ -43,7 +43,7 @@ class ModelInputs(object):
             name='training',
             shape=())
 
-        if config.source_same_scene_head or config.source_same_scene_cross_attention_head:
+        if config.source_same_scene_head or config.source_same_scene_cross_attention_head or config.target_same_scene_head_FC_FFN:
             self.x_source_same_scene_mask = tf.compat.v1.placeholder(
                 name='x_source_same_scene_mask',
                 shape=(seq_len, seq_len, batch_size),
@@ -61,7 +61,7 @@ class ModelInputs(object):
                 shape=(seq_len, seq_len, batch_size),
                 dtype=tf.float32)
 
-        if config.target_same_scene_head_loss:
+        if config.target_same_scene_head_loss or config.target_same_scene_head_FC_FFN:
             self.y_target_same_scene_mask = tf.compat.v1.placeholder(
                 name='y_target_same_scene_mask',
                 shape=(seq_len, seq_len, batch_size),

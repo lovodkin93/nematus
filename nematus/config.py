@@ -420,12 +420,23 @@ class ConfigSpecification:
             action='store_true',
             help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (learnt by adding the softmax values of the decoder layers to the loss function) (default: False)'))
 
+        group.append(ParameterSpecification(
+            name='target_same_scene_head_loss_reg_factor', default=0.01,
+            visible_arg_names=['--target_same_scene_head_loss_reg_factor'],
+            type=float, metavar='FLOAT',
+            help='regularization factor of the target_same_scene_head_loss (default: %(default)s)'))
 
         group.append(ParameterSpecification(
-            name='target_same_scene_head_reg_factor', default=0.01,
-            visible_arg_names=['--target_same_scene_head_reg_factor'],
+            name='target_same_scene_head_FC_FFN', default=False,
+            visible_arg_names=['--target_same_scene_head_FC_FFN'],
+            action='store_true',
+            help='True if system uses one head to attend only to tokens in the same scene as current one in decoder (a Fully Connected FFN is learnt to transition between source ssm and tatget ssm) (default: False)'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_head_FC_FFN_reg_factor', default=0.01,
+            visible_arg_names=['--target_same_scene_head_FC_FFN_reg_factor'],
             type=float, metavar='FLOAT',
-            help='regularization factor of the target same scene head (default: %(default)s)'))
+            help='regularization factor of the target_same_scene_head_FC_FFC (default: %(default)s)'))
 
         group.append(ParameterSpecification(
             name='source_num_parent_scaled_head', default=1,
@@ -485,18 +496,36 @@ class ConfigSpecification:
             help='whether to apply the UD_distance_scaled mask before softmax (pre_softmax) or post softmax (post_softmax)'))
 
         group.append(ParameterSpecification(
-            name='target_num_same_scene_head', default=1,
-            visible_arg_names=['--target_num_same_scene_head'],
+            name='target_num_same_scene_head_loss', default=1,
+            visible_arg_names=['--target_num_same_scene_head_loss'],
             type=int, metavar='INT',
-            help='number of same_scene_heads per layer in target (default: '
+            help='number of same_scene_head_loss per layer in target (default: '
                  '%(default)s)'))
 
         group.append(ParameterSpecification(
-            name='target_same_scene_masks_layers', default='all_layers',
-            visible_arg_names=['--target_same_scene_masks_layers'],
-            type=str,
-            help='which layers to apply the target same_scene_mask to (pass as a string of a list, e.g \'[1,2,3]\')'))
+            name='target_num_same_scene_head_FC_FFN', default=1,
+            visible_arg_names=['--target_num_same_scene_head_FC_FFN'],
+            type=int, metavar='INT',
+            help='number of same_scene_head_FC_FFN per layer in target (default: '
+                 '%(default)s)'))
 
+        group.append(ParameterSpecification(
+            name='target_same_scene_masks_loss_layers', default='all_layers',
+            visible_arg_names=['--target_same_scene_masks_loss_layers'],
+            type=str,
+            help='which layers to apply the target_same_scene_mask_loss to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_masks_FC_FFN_layers', default='all_layers',
+            visible_arg_names=['--target_same_scene_masks_FC_FFN_layers'],
+            type=str,
+            help='which layers to apply the target_same_scene_mask_FC_FFN to (pass as a string of a list, e.g \'[1,2,3]\')'))
+
+        group.append(ParameterSpecification(
+            name='target_same_scene_masks_FC_FFN_how', default='with_each_layer_input',
+            visible_arg_names=['--target_same_scene_masks_FC_FFN_how'],
+            type=str,
+            help='what to include in the learning proces. Three options: \'just_source_mask\', \'with_decoder_input\' (source mask with the decoder input - so the same for all layers), \'with_each_layer_input\' (source mask with the input to each layer seperately - so different for between each layer)'))
 
         group.append(ParameterSpecification(
             name='source_train_same_scene_masks', default=None,
@@ -1522,8 +1551,8 @@ def _check_config_consistency(spec, config, set_by_user):
                   '--valid_target_dataset'
             error_messages.append(msg)
 
-    if (config.source_same_scene_head or config.source_same_scene_cross_attention_head) and (not config.source_valid_same_scene_masks or not config.source_train_same_scene_masks):
-        msg ='--source_same_scene_head and --source_same_scene_cross_attention_head requires both --source_valid_same_scene_masks and --source_train_same_scene_masks'
+    if (config.source_same_scene_head or config.source_same_scene_cross_attention_head or config.target_same_scene_head_FC_FFN) and (not config.source_valid_same_scene_masks or not config.source_train_same_scene_masks):
+        msg ='--source_same_scene_head and --source_same_scene_cross_attention_head and --target_same_scene_head_FC_FFN require both --source_valid_same_scene_masks and --source_train_same_scene_masks'
         error_messages.append(msg)
 
     if config.source_parent_scaled_head and (not config.source_valid_parent_scaled_masks or not config.source_train_parent_scaled_masks):
@@ -1534,8 +1563,8 @@ def _check_config_consistency(spec, config, set_by_user):
         msg ='--source_UD_distance_scaled_head requires both --source_valid_UD_distance_scaled_masks and --source_train_UD_distance_scaled_masks'
         error_messages.append(msg)
 
-    if config.target_same_scene_head_loss and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
-        msg ='--target_same_scene_head_loss requires --target_train_same_scene_masks and --target_valid_same_scene_masks'
+    if (config.target_same_scene_head_loss or config.target_same_scene_head_FC_FFN) and (not config.target_valid_same_scene_masks or not config.target_train_same_scene_masks):
+        msg ='--target_same_scene_head_loss and --target_same_scene_head_FC_FFN require both --target_train_same_scene_masks and --target_valid_same_scene_masks'
         error_messages.append(msg)
 
     if ((config.source_valid_bleu_same_scene_masks is None)  and (config.valid_bleu_source_dataset is not None)) or \

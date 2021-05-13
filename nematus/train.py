@@ -266,7 +266,7 @@ def train(config, sess):
             #     logging.info("AVIVSL10: third sentence is {0}, and its mask is {1}" .format(source3,same_scene_masks[2]))
             # logging.info("AVIVSL13: length of source_sents is {0} and of same_scene_masks is {1}" .format(len(source_sents), len(same_scene_masks)))
             if config.target_graph:
-                if config.target_same_scene_head_loss:
+                if config.target_same_scene_head_loss or config.target_same_scene_head_FC_FFN:
                     target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = list(zip(*target_sents))
                     target_sents, target_edges_time, target_labels_time, target_parents_time, target_same_scene_masks = \
                         list(target_sents), list(target_edges_time), list(target_labels_time), list(target_parents_time), list(target_same_scene_masks)
@@ -283,7 +283,7 @@ def train(config, sess):
                 target_edges_time = None
                 target_labels_time = None
                 target_parents_time = None
-                if config.target_same_scene_head_loss:
+                if config.target_same_scene_head_loss or config.target_same_scene_head_FC_FFN:
                     target_sents, target_same_scene_masks = list(zip(*target_sents))
                     target_sents, target_same_scene_masks = list(target_sents), list(target_same_scene_masks)
                 else:
@@ -291,7 +291,7 @@ def train(config, sess):
 
             source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(zip(*source_sents))
             source_sents, source_same_scene_masks, source_parent_scaled_masks, source_UD_distance_scaled_masks = list(source_sents), list(source_same_scene_masks), list(source_parent_scaled_masks), list(source_UD_distance_scaled_masks)
-            if (not config.source_same_scene_head) and (not config.source_same_scene_cross_attention_head):
+            if (not config.source_same_scene_head) and (not config.source_same_scene_cross_attention_head) and (not config.target_same_scene_head_FC_FFN):
                 source_same_scene_masks = None
             if not config.source_parent_scaled_head:
                 source_parent_scaled_masks = None
