@@ -1089,7 +1089,10 @@ class TransformerDecoder(object):
                                          self_attn_mask, None, None, None,target_mask_learning, isDecoder=True)  # avoid attending sentences with no words and words after the sentence (zeros)
 
                 if target_same_scene_learnt_mask is not None:
-                    target_same_scene_learnt_mask_list.append(target_same_scene_learnt_mask)
+                    if self.config.target_same_scene_masks_FC_FFN_how == 'with_each_layer_input':
+                        target_same_scene_learnt_mask_list.append(target_same_scene_learnt_mask)
+                    elif not target_same_scene_learnt_mask_list: # adding the mask only once when it is the same mask for all layers
+                        target_same_scene_learnt_mask_list.append(target_same_scene_learnt_mask)
                     ##################################### PRINT #############################################
                     # printops = []
                     # printops.append(tf.compat.v1.Print([], [tf.shape(target_same_scene_learnt_mask)], "AVIVSL10: target_same_scene_learnt_mask", 50, 300))

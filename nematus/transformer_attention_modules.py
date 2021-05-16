@@ -169,6 +169,8 @@ class MultiHeadAttentionLayer(object):
 
         # ################################################## PRINTS ########################################################
         # print_ops = []
+        # if target_mask_learning is not None:
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning[0])], "AVIVSL7: target_mask_learning[0]: " + self.name, 50, 100))
         # if isDecoder and isInference:
 
             # print_ops.append(
@@ -448,6 +450,17 @@ class MultiHeadAttentionLayer(object):
             target_same_scene_learnt_mask, num_of_heads = self._get_target_mask(target_mask_learning)
             target_same_scene_learnt_mask = target_same_scene_learnt_mask[:,:,:,:tf.shape(attn_weights)[3]] # cut the mask to be in the length of the current sentence
             target_same_scene_learnt_mask_all_heads = self._get_target_mask_all_heads(target_same_scene_learnt_mask, num_of_heads)
+
+
+            ################################################## PRINTS ######################################################
+            # print_ops = []
+            # print_ops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning[0]),tf.shape(target_same_scene_learnt_mask_all_heads),tf.shape(attn_weights)],
+            #                                     "AVIVSL9 target_mask_learning[0], target_same_scene_learnt_mask_all_heads, attn_weights: ", summarize=10000))
+            # with tf.control_dependencies(print_ops):
+            #     attn_weights = attn_weights * 1
+            ################################################################################################################
+
+
             attn_weights*=target_same_scene_learnt_mask_all_heads
         else:
             target_same_scene_learnt_mask = None

@@ -262,12 +262,12 @@ class ModelAdapter:
 
                     # # ############################################## PRINTING #######################################################
                     # printops = []
-                    # printops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning_input_list[0][0])],
-                    #                                    "AVIVSL100: target_mask_learning_input_list layer " + str(
+                    # printops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning_input), tf.shape(s_same_scene_mask)],
+                    #                                    "AVIVSL100: target_mask_learning_input, s_same_scene_mask " + str(
                     #                                        layer_id), summarize=11000))
-                    # printops.append(tf.compat.v1.Print([], [target_mask_learning_input_list[0][1]],
-                    #                                    "AVIVSL100: target_num_same_scene_head_FC_FFN layer " + str(
-                    #                                        layer_id), summarize=11000))
+                    # # printops.append(tf.compat.v1.Print([], [target_mask_learning_input_list[0][1]],
+                    # #                                    "AVIVSL100: target_num_same_scene_head_FC_FFN layer " + str(
+                    # #                                        layer_id), summarize=11000))
                     # with tf.control_dependencies(printops):
                     #     layer_output = layer_output * 1
                     # # ###############################################################################################################
@@ -457,15 +457,7 @@ class ModelAdapter:
         max_sent_len = self.config.maxlen + 1
         padding_size = tf.math.maximum(max_sent_len - source_sent_len, 0)
         target_mask_learning_input = tf.pad(source_mask, [[0, 0, ], [0, padding_size], [0, padding_size]], "CONSTANT")  # pad to the maximum length of a sentence
-
-        # # ################################################# PRINT ###################################################
-        # print_ops = []
-        # print_ops.append(tf.compat.v1.Print([], [num_batch, max_sent_len], "AVIVSL14: target_mask_learning_input shape: ",
-        #                                     summarize=10000))
-        # with tf.control_dependencies(print_ops):
-        #     target_mask_learning_input = target_mask_learning_input * 1  # TODO delete
-        # # ###########################################################################################################
-        # TODO : problem here - didn't filter long sentences...
+        target_mask_learning_input = target_mask_learning_input[:, :max_sent_len, :max_sent_len] # because in inference also sentences longer than max_sent_len are being processed
         target_mask_learning_input = tf.reshape(target_mask_learning_input, [num_batch, max_sent_len*max_sent_len]) # [batch_size, maxlen*maxlen] turn the mask (2-D) into a vector - concatenate its rows
         target_mask_learning_input = tf.expand_dims(target_mask_learning_input, axis=1) # [batch_size, 1, maxlen*maxlen] add the head dimension
         target_mask_learning_input = tf.expand_dims(target_mask_learning_input, axis=2) # [batch_size, 1, 1, maxlen*maxlen] add the num_sent dimension

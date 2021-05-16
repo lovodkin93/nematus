@@ -84,7 +84,8 @@ class AttentionBlock(object):
 
         ################################ PRINT ###################################################
         # print_ops = []
-        # print_ops.append(tf.compat.v1.Print([], [tf.shape(inputs)], "AVIVSL6: attn_mask: ", summarize=10000))
+        # if target_mask_learning is not None:
+        #     print_ops.append(tf.compat.v1.Print([], [tf.shape(target_mask_learning[0])], "AVIVSL6: target_mask_learning[0]: ", summarize=10000))
         # # if not isDecoder:
         # #     if target_mask_learning_input_list is None:
         # #         print_ops.append(tf.compat.v1.Print([], [], "AVIVSL6: GOOD! no mask in encoder", summarize=10000))
